@@ -37,6 +37,46 @@
       playStartTime: 0
     };
 
+    const PIXELS_PER_SECOND = 150;
+    const PLAYHEAD_X = 120;
+    const ROW_HEIGHT = 18;
+    const NOTE_COLOR = '#4a90d9'; // blue — Etapa 1 has no pitch detection yet, every note is blue
+
+    function currentPlaybackTime() {
+      if (!state.sourceNode) return 0;
+      return state.audioContext.currentTime - state.playStartTime;
+    }
+
+    function renderPianoRoll() {
+      const canvas = document.getElementById('pianoRoll');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const { minPitch, maxPitch } = pitchRange(state.notes);
+      const view = {
+        currentTime: currentPlaybackTime(),
+        pixelsPerSecond: PIXELS_PER_SECOND,
+        playheadX: PLAYHEAD_X,
+        minPitch, maxPitch,
+        canvasHeight: canvas.height,
+        rowHeight: ROW_HEIGHT
+      };
+
+      ctx.fillStyle = NOTE_COLOR;
+      for (const note of state.notes) {
+        const rect = computeNoteRect(note, view);
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+      }
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(PLAYHEAD_X, 0);
+      ctx.lineTo(PLAYHEAD_X, canvas.height);
+      ctx.stroke();
+    }
+
+    renderPianoRoll();
+
     document.getElementById('midiInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -46,6 +86,7 @@
       state.durationSec = durationSec;
       document.getElementById('midiStatus').textContent =
         `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
+      renderPianoRoll();
     });
 
     document.getElementById('wavInput').addEventListener('change', async (e) => {
@@ -56,6 +97,29 @@
       document.getElementById('wavStatus').textContent =
         `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
     });
+
+    function play() {
+      if (!state.audioBuffer) return;
+      if (state.sourceNode) {
+        state.sourceNode.stop();
+      }
+      state.sourceNode = state.audioContext.createBufferSource();
+      state.sourceNode.buffer = state.audioBuffer;
+      state.sourceNode.connect(state.audioContext.destination);
+      state.playStartTime = state.audioContext.currentTime;
+      state.sourceNode.start();
+      state.sourceNode.onended = () => { state.sourceNode = null; };
+      requestAnimationFrame(renderLoop);
+    }
+
+    function renderLoop() {
+      renderPianoRoll();
+      if (state.sourceNode) {
+        requestAnimationFrame(renderLoop);
+      }
+    }
+
+    document.getElementById('playBtn').addEventListener('click', play);
   </script>
 </body>
 </html>
