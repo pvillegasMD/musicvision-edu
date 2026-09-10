@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>App voz — Piano roll de canto</title>
+<style>
+  body { background:#12141c; color:#e8ecf4; font-family: system-ui, sans-serif; margin:0; padding:24px; }
+  .controls { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  #status { font-size:14px; opacity:0.8; margin-bottom:12px; line-height:1.6; }
+  #pianoRoll { width:100%; max-width:900px; height:240px; background:#1a1d29; border-radius:8px; display:block; }
+  button { background:#4a90d9; color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; }
+  button:disabled { opacity:0.4; cursor:not-allowed; }
+</style>
+</head>
+<body>
+  <h1>App voz — Etapa 1</h1>
+  <div class="controls">
+    <label>MIDI: <input type="file" id="midiInput" accept=".mid,.midi"></label>
+    <label>WAV: <input type="file" id="wavInput" accept=".wav"></label>
+    <button id="playBtn">Reproducir</button>
+  </div>
+  <div id="status">
+    <div id="midiStatus">Sin MIDI cargado.</div>
+    <div id="wavStatus">Sin WAV cargado.</div>
+  </div>
+  <canvas id="pianoRoll" width="900" height="240"></canvas>
+
+  <script src="./midi-parser.js"></script>
+  <script src="./piano-roll-geometry.js"></script>
+  <script>
+    const state = {
+      audioContext: new (window.AudioContext || window.webkitAudioContext)(),
+      audioBuffer: null,
+      notes: [],
+      durationSec: 0,
+      sourceNode: null,
+      playStartTime: 0
+    };
+
+    document.getElementById('midiInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const buffer = await file.arrayBuffer();
+      const { notes, durationSec } = parseMidi(buffer);
+      state.notes = notes;
+      state.durationSec = durationSec;
+      document.getElementById('midiStatus').textContent =
+        `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
+    });
+
+    document.getElementById('wavInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const arrayBuffer = await file.arrayBuffer();
+      state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+      document.getElementById('wavStatus').textContent =
+        `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+    });
+  </script>
+</body>
+</html>
