@@ -101,14 +101,18 @@
     function play() {
       if (!state.audioBuffer) return;
       if (state.sourceNode) {
+        state.sourceNode.onended = null;
         state.sourceNode.stop();
       }
-      state.sourceNode = state.audioContext.createBufferSource();
-      state.sourceNode.buffer = state.audioBuffer;
-      state.sourceNode.connect(state.audioContext.destination);
+      const node = state.audioContext.createBufferSource();
+      node.buffer = state.audioBuffer;
+      node.connect(state.audioContext.destination);
+      state.sourceNode = node;
       state.playStartTime = state.audioContext.currentTime;
-      state.sourceNode.start();
-      state.sourceNode.onended = () => { state.sourceNode = null; };
+      node.start();
+      node.onended = () => {
+        if (state.sourceNode === node) state.sourceNode = null;
+      };
       requestAnimationFrame(renderLoop);
     }
 
