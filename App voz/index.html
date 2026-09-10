@@ -80,26 +80,43 @@
     document.getElementById('midiInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const buffer = await file.arrayBuffer();
-      const { notes, durationSec } = parseMidi(buffer);
-      state.notes = notes;
-      state.durationSec = durationSec;
-      document.getElementById('midiStatus').textContent =
-        `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
-      renderPianoRoll();
+      try {
+        const buffer = await file.arrayBuffer();
+        const { notes, durationSec } = parseMidi(buffer);
+        state.notes = notes;
+        state.durationSec = durationSec;
+        document.getElementById('midiStatus').textContent =
+          `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
+        renderPianoRoll();
+      } catch (err) {
+        state.notes = [];
+        state.durationSec = 0;
+        document.getElementById('midiStatus').textContent =
+          `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
+        renderPianoRoll();
+      }
     });
 
     document.getElementById('wavInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const arrayBuffer = await file.arrayBuffer();
-      state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
-      document.getElementById('wavStatus').textContent =
-        `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('wavStatus').textContent =
+          `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+      } catch (err) {
+        state.audioBuffer = null;
+        document.getElementById('wavStatus').textContent =
+          `Error al cargar el WAV: ${err.message || 'Archivo WAV inválido'}`;
+      }
     });
 
-    function play() {
+    async function play() {
       if (!state.audioBuffer) return;
+      if (state.audioContext.state === 'suspended') {
+        await state.audioContext.resume();
+      }
       if (state.sourceNode) {
         state.sourceNode.onended = null;
         state.sourceNode.stop();
