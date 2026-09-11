@@ -33,11 +33,14 @@
     <div id="levelMeterTrack"><div id="levelMeterBar"></div></div>
   </div>
   <div id="micStatus">Micrófono no activado.</div>
+  <div id="pitchDisplay">Nota detectada: —</div>
   <canvas id="pianoRoll" width="900" height="240"></canvas>
 
   <script src="./midi-parser.js"></script>
   <script src="./piano-roll-geometry.js"></script>
   <script src="./audio-level.js"></script>
+  <script src="./pitch-detection.js"></script>
+  <script src="./note-utils.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -61,7 +64,8 @@
       analyser.fftSize = 2048;
       source.connect(gainNode);
       gainNode.connect(analyser);
-      const buffer = new Uint8Array(analyser.fftSize);
+      const byteBuffer = new Uint8Array(analyser.fftSize);
+      const floatBuffer = new Float32Array(analyser.fftSize);
       return {
         stream,
         source,
@@ -71,8 +75,12 @@
           gainNode.gain.value = value;
         },
         getLevel() {
-          analyser.getByteTimeDomainData(buffer);
-          return computeLevel(buffer);
+          analyser.getByteTimeDomainData(byteBuffer);
+          return computeLevel(byteBuffer);
+        },
+        getPitch() {
+          analyser.getFloatTimeDomainData(floatBuffer);
+          return detectPitch(floatBuffer, audioContext.sampleRate);
         }
       };
     }
@@ -111,6 +119,7 @@
     }
 
     renderPianoRoll();
+    requestAnimationFrame(mainLoop);
 
     document.getElementById('midiInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
@@ -165,14 +174,6 @@
       node.onended = () => {
         if (state.sourceNode === node) state.sourceNode = null;
       };
-      requestAnimationFrame(renderLoop);
-    }
-
-    function renderLoop() {
-      renderPianoRoll();
-      if (state.sourceNode) {
-        requestAnimationFrame(renderLoop);
-      }
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
@@ -190,14 +191,25 @@
       }
     }
 
-    function micLevelLoop() {
+    function updatePitchDisplay(frequency) {
+      const el = document.getElementById('pitchDisplay');
+      if (frequency === null) {
+        el.textContent = 'Nota detectada: —';
+        return;
+      }
+      const { noteName, cents } = describePitch(frequency);
+      const sign = cents >= 0 ? '+' : '';
+      el.textContent = `Nota detectada: ${noteName} (${frequency.toFixed(1)} Hz, ${sign}${cents.toFixed(0)} cents)`;
+    }
+
+    function mainLoop() {
+      renderPianoRoll();
       if (state.voces[0]) {
         const { peak } = state.voces[0].getLevel();
         updateLevelMeter(peak);
+        updatePitchDisplay(state.voces[0].getPitch());
       }
-      if (state.voces.length > 0) {
-        requestAnimationFrame(micLevelLoop);
-      }
+      requestAnimationFrame(mainLoop);
     }
 
     document.getElementById('micBtn').addEventListener('click', async () => {
@@ -220,7 +232,6 @@
         state.voces.push(voz);
         micStatus.textContent = 'Micrófono activado.';
         document.getElementById('micGain').disabled = false;
-        requestAnimationFrame(micLevelLoop);
       } catch (err) {
         micBtn.disabled = false;
         let msg = 'No se pudo activar el micrófono.';
