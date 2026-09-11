@@ -63,7 +63,10 @@
     const PIXELS_PER_SECOND = 150;
     const PLAYHEAD_X = 120;
     const ROW_HEIGHT = 18;
-    const NOTE_COLOR = '#4a90d9'; // blue — Etapa 1 has no pitch detection yet, every note is blue
+    const COLOR_UPCOMING = '#4a90d9';
+    const COLOR_IN_TUNE = '#3ecf6e';
+    const COLOR_OUT_OF_TUNE = '#e05a4e';
+    const COLOR_NO_SIGNAL = '#6b7280';
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -114,8 +117,9 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const { minPitch, maxPitch } = pitchRange(state.notes);
+      const currentTime = currentPlaybackTime();
       const view = {
-        currentTime: currentPlaybackTime(),
+        currentTime,
         pixelsPerSecond: PIXELS_PER_SECOND,
         playheadX: PLAYHEAD_X,
         minPitch, maxPitch,
@@ -123,17 +127,49 @@
         rowHeight: ROW_HEIGHT
       };
 
-      ctx.fillStyle = NOTE_COLOR;
-      for (const note of state.notes) {
+      state.notes.forEach((note, i) => {
         const rect = computeNoteRect(note, view);
-        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-      }
+        const status = noteStatus(note, currentTime);
+
+        if (status === 'upcoming') {
+          ctx.fillStyle = COLOR_UPCOMING;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        } else if (status === 'active') {
+          const color = i === state.activeNoteIndex ? state.activeNoteColor : 'no-signal';
+          ctx.fillStyle =
+            color === 'in-tune' ? COLOR_IN_TUNE :
+            color === 'out-of-tune' ? COLOR_OUT_OF_TUNE :
+            COLOR_NO_SIGNAL;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        } else {
+          const ratio = tuningRatio(state.noteProgress[i]);
+          const greenWidth = rect.width * ratio;
+          ctx.fillStyle = COLOR_IN_TUNE;
+          ctx.fillRect(rect.x, rect.y, greenWidth, rect.height);
+          ctx.fillStyle = COLOR_OUT_OF_TUNE;
+          ctx.fillRect(rect.x + greenWidth, rect.y, rect.width - greenWidth, rect.height);
+        }
+      });
 
       ctx.strokeStyle = '#ffffff';
       ctx.beginPath();
       ctx.moveTo(PLAYHEAD_X, 0);
       ctx.lineTo(PLAYHEAD_X, canvas.height);
       ctx.stroke();
+    }
+
+    function playSuccessBlip(audioContext) {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start();
+      osc.stop(audioContext.currentTime + 0.16);
     }
 
     renderPianoRoll();
@@ -247,6 +283,15 @@
       state.lastActiveNoteColor = state.activeNoteColor;
       state.activeNoteIndex = activeIndex;
       state.activeNoteColor = activeColor;
+
+      if (
+        activeIndex !== null &&
+        activeIndex === state.lastActiveNoteIndex &&
+        state.lastActiveNoteColor !== 'in-tune' &&
+        activeColor === 'in-tune'
+      ) {
+        playSuccessBlip(state.audioContext);
+      }
     }
 
     function mainLoop() {
