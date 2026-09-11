@@ -41,6 +41,7 @@
   <script src="./audio-level.js"></script>
   <script src="./pitch-detection.js"></script>
   <script src="./note-utils.js"></script>
+  <script src="./note-tuning.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -49,7 +50,14 @@
       durationSec: 0,
       sourceNode: null,
       playStartTime: 0,
-      voces: []
+      voces: [],
+      noteProgress: [],
+      lastFrameTime: null,
+      activeNoteIndex: null,
+      activeNoteColor: null,
+      lastActiveNoteIndex: null,
+      lastActiveNoteColor: null,
+      frozenTime: null
     };
 
     const PIXELS_PER_SECOND = 150;
@@ -85,9 +93,19 @@
       };
     }
 
+    function resetNoteProgress() {
+      state.noteProgress = state.notes.map(() => ({ timeInTune: 0, timeTotal: 0 }));
+      state.activeNoteIndex = null;
+      state.activeNoteColor = null;
+      state.lastActiveNoteIndex = null;
+      state.lastActiveNoteColor = null;
+    }
+
     function currentPlaybackTime() {
-      if (!state.sourceNode) return 0;
-      return state.audioContext.currentTime - state.playStartTime;
+      if (state.sourceNode) {
+        return state.audioContext.currentTime - state.playStartTime;
+      }
+      return state.frozenTime !== null ? state.frozenTime : 0;
     }
 
     function renderPianoRoll() {
@@ -129,12 +147,14 @@
         const { notes, durationSec } = parseMidi(buffer);
         state.notes = notes;
         state.durationSec = durationSec;
+        resetNoteProgress();
         document.getElementById('midiStatus').textContent =
           `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
         renderPianoRoll();
       } catch (err) {
         state.notes = [];
         state.durationSec = 0;
+        resetNoteProgress();
         document.getElementById('midiStatus').textContent =
           `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
         renderPianoRoll();
@@ -165,6 +185,8 @@
         state.sourceNode.onended = null;
         state.sourceNode.stop();
       }
+      state.frozenTime = null;
+      resetNoteProgress();
       const node = state.audioContext.createBufferSource();
       node.buffer = state.audioBuffer;
       node.connect(state.audioContext.destination);
@@ -172,7 +194,10 @@
       state.playStartTime = state.audioContext.currentTime;
       node.start();
       node.onended = () => {
-        if (state.sourceNode === node) state.sourceNode = null;
+        if (state.sourceNode === node) {
+          state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+          state.sourceNode = null;
+        }
       };
     }
 
@@ -202,13 +227,45 @@
       el.textContent = `Nota detectada: ${noteName} (${frequency.toFixed(1)} Hz, ${sign}${cents.toFixed(0)} cents)`;
     }
 
+    function updateNoteProgress(currentTime, detectedFrequency, deltaSeconds) {
+      let activeIndex = null;
+      let activeColor = null;
+
+      if (state.sourceNode) {
+        state.notes.forEach((note, i) => {
+          if (noteStatus(note, currentTime) !== 'active') return;
+          activeIndex = i;
+          activeColor = liveNoteColor(detectedFrequency, note.pitch);
+          if (deltaSeconds > 0) {
+            const isInTuneNow = activeColor === 'in-tune';
+            state.noteProgress[i] = accumulateTuning(state.noteProgress[i], isInTuneNow, deltaSeconds);
+          }
+        });
+      }
+
+      state.lastActiveNoteIndex = state.activeNoteIndex;
+      state.lastActiveNoteColor = state.activeNoteColor;
+      state.activeNoteIndex = activeIndex;
+      state.activeNoteColor = activeColor;
+    }
+
     function mainLoop() {
-      renderPianoRoll();
+      const now = state.audioContext.currentTime;
+      const deltaSeconds = state.lastFrameTime === null ? 0 : now - state.lastFrameTime;
+      state.lastFrameTime = now;
+
+      const currentTime = currentPlaybackTime();
+      let detectedFrequency = null;
       if (state.voces[0]) {
         const { peak } = state.voces[0].getLevel();
         updateLevelMeter(peak);
-        updatePitchDisplay(peak > 0.02 ? state.voces[0].getPitch() : null);
+        detectedFrequency = peak > 0.02 ? state.voces[0].getPitch() : null;
+        updatePitchDisplay(detectedFrequency);
       }
+
+      updateNoteProgress(currentTime, detectedFrequency, deltaSeconds);
+      renderPianoRoll();
+
       requestAnimationFrame(mainLoop);
     }
 
