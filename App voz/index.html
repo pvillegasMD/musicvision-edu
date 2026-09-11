@@ -10,6 +10,10 @@
   #pianoRoll { width:100%; max-width:900px; height:240px; background:#1a1d29; border-radius:8px; display:block; }
   button { background:#4a90d9; color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; }
   button:disabled { opacity:0.4; cursor:not-allowed; }
+  .mic-controls { display:flex; align-items:center; gap:12px; margin: 16px 0; flex-wrap:wrap; }
+  #levelMeterTrack { width:220px; height:16px; background:#1a1d29; border-radius:4px; overflow:hidden; }
+  #levelMeterBar { height:100%; width:0%; background:#3ecf6e; transition: width 0.05s linear, background-color 0.1s linear; }
+  input[type="range"] { width:160px; }
 </style>
 </head>
 <body>
@@ -23,10 +27,17 @@
     <div id="midiStatus">Sin MIDI cargado.</div>
     <div id="wavStatus">Sin WAV cargado.</div>
   </div>
+  <div class="mic-controls">
+    <button id="micBtn">Activar micrófono</button>
+    <label>Ganancia: <input type="range" id="micGain" min="0" max="2" step="0.01" value="1" disabled></label>
+    <div id="levelMeterTrack"><div id="levelMeterBar"></div></div>
+  </div>
+  <div id="micStatus">Micrófono no activado.</div>
   <canvas id="pianoRoll" width="900" height="240"></canvas>
 
   <script src="./midi-parser.js"></script>
   <script src="./piano-roll-geometry.js"></script>
+  <script src="./audio-level.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -34,13 +45,37 @@
       notes: [],
       durationSec: 0,
       sourceNode: null,
-      playStartTime: 0
+      playStartTime: 0,
+      voces: []
     };
 
     const PIXELS_PER_SECOND = 150;
     const PLAYHEAD_X = 120;
     const ROW_HEIGHT = 18;
     const NOTE_COLOR = '#4a90d9'; // blue — Etapa 1 has no pitch detection yet, every note is blue
+
+    function createVoz(stream, audioContext) {
+      const source = audioContext.createMediaStreamSource(stream);
+      const gainNode = audioContext.createGain();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(gainNode);
+      gainNode.connect(analyser);
+      const buffer = new Uint8Array(analyser.fftSize);
+      return {
+        stream,
+        source,
+        gainNode,
+        analyser,
+        setGain(value) {
+          gainNode.gain.value = value;
+        },
+        getLevel() {
+          analyser.getByteTimeDomainData(buffer);
+          return computeLevel(buffer);
+        }
+      };
+    }
 
     function currentPlaybackTime() {
       if (!state.sourceNode) return 0;
@@ -141,6 +176,53 @@
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
+
+    function updateLevelMeter(peak) {
+      const bar = document.getElementById('levelMeterBar');
+      const pct = Math.min(peak, 1) * 100;
+      bar.style.width = pct + '%';
+      if (peak > 0.9) {
+        bar.style.backgroundColor = '#e05a4e';
+      } else if (peak > 0.7) {
+        bar.style.backgroundColor = '#e0b83e';
+      } else {
+        bar.style.backgroundColor = '#3ecf6e';
+      }
+    }
+
+    function micLevelLoop() {
+      if (state.voces[0]) {
+        const { peak } = state.voces[0].getLevel();
+        updateLevelMeter(peak);
+      }
+      if (state.voces.length > 0) {
+        requestAnimationFrame(micLevelLoop);
+      }
+    }
+
+    document.getElementById('micBtn').addEventListener('click', async () => {
+      const micStatus = document.getElementById('micStatus');
+      try {
+        if (state.audioContext.state === 'suspended') {
+          await state.audioContext.resume();
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const voz = createVoz(stream, state.audioContext);
+        state.voces.push(voz);
+        micStatus.textContent = 'Micrófono activado.';
+        document.getElementById('micBtn').disabled = true;
+        document.getElementById('micGain').disabled = false;
+        requestAnimationFrame(micLevelLoop);
+      } catch (err) {
+        micStatus.textContent = `Error al activar el micrófono: ${err.message || 'permiso denegado'}`;
+      }
+    });
+
+    document.getElementById('micGain').addEventListener('input', (e) => {
+      if (state.voces[0]) {
+        state.voces[0].setGain(parseFloat(e.target.value));
+      }
+    });
   </script>
 </body>
 </html>
