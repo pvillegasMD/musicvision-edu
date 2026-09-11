@@ -1,10 +1,9 @@
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
 function frequencyToMidi(frequency) {
   return 69 + 12 * Math.log2(frequency / 440);
 }
 
 function midiToNoteName(midiNumber) {
+  const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const rounded = Math.round(midiNumber);
   const name = NOTE_NAMES[((rounded % 12) + 12) % 12];
   const octave = Math.floor(rounded / 12) - 1;

@@ -207,7 +207,7 @@
       if (state.voces[0]) {
         const { peak } = state.voces[0].getLevel();
         updateLevelMeter(peak);
-        updatePitchDisplay(state.voces[0].getPitch());
+        updatePitchDisplay(peak > 0.02 ? state.voces[0].getPitch() : null);
       }
       requestAnimationFrame(mainLoop);
     }
