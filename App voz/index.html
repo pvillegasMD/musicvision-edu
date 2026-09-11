@@ -201,20 +201,37 @@
     }
 
     document.getElementById('micBtn').addEventListener('click', async () => {
+      const micBtn = document.getElementById('micBtn');
       const micStatus = document.getElementById('micStatus');
+      micBtn.disabled = true;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        micStatus.textContent = 'Error al activar el micrófono: este navegador no permite acceso al micrófono desde este origen (probá abriendo la app con http://localhost o https://).';
+        micBtn.disabled = false;
+        return;
+      }
       try {
         if (state.audioContext.state === 'suspended') {
           await state.audioContext.resume();
         }
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        });
         const voz = createVoz(stream, state.audioContext);
         state.voces.push(voz);
         micStatus.textContent = 'Micrófono activado.';
-        document.getElementById('micBtn').disabled = true;
         document.getElementById('micGain').disabled = false;
         requestAnimationFrame(micLevelLoop);
       } catch (err) {
-        micStatus.textContent = `Error al activar el micrófono: ${err.message || 'permiso denegado'}`;
+        micBtn.disabled = false;
+        let msg = 'No se pudo activar el micrófono.';
+        if (err.name === 'NotAllowedError') {
+          msg = 'Permiso de micrófono denegado. Revisá los permisos del sitio en el navegador.';
+        } else if (err.name === 'NotFoundError') {
+          msg = 'No se encontró ningún micrófono conectado.';
+        } else if (err.message) {
+          msg = `Error al activar el micrófono: ${err.message}`;
+        }
+        micStatus.textContent = msg;
       }
     });
 
