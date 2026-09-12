@@ -91,8 +91,8 @@ function parseMidi(buffer) {
   const maxBeats = 100000; // safety cap against a corrupt/degenerate tempo map
   while (beats.length < maxBeats) {
     const t = tickToSeconds(beatTick);
-    if (beats.length > 0 && t > durationSec) break;
     beats.push(t);
+    if (t >= durationSec) break;
     beatTick += ticksPerBeat;
   }
 

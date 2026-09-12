@@ -43,3 +43,26 @@ test('parseMidi exposes beat timestamps derived from ticksPerBeat and the tempo 
   assert.ok(Math.abs(result.beats[1] - 0.5) < 1e-9);
   assert.ok(Math.abs(result.beats[2] - 1.0) < 1e-9);
 });
+
+test('parseMidi includes the beat at or after durationSec even when durationSec is mid-beat', () => {
+  // Hand-built MIDI: note 60 for 0.5s, then note 62 for 0.75s.
+  // Second note ends at tick 480 + 720 = 1200, giving durationSec = 1.25s.
+  // Beats at 480 ticks = 0.5s/beat: 0, 0.5, 1.0, 1.5.
+  // This tests the fix: must include the beat at 1.5s (first beat >= durationSec).
+  const SAMPLE_MIDI_MID_BEAT = new Uint8Array([
+    0x4D, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01, 0x01, 0xE0,
+    0x4D, 0x54, 0x72, 0x6B, 0x00, 0x00, 0x00, 0x16,
+    0x00, 0x90, 0x3C, 0x64,
+    0x83, 0x60, 0x80, 0x3C, 0x00,
+    0x00, 0x90, 0x3E, 0x64,
+    0x85, 0x70, 0x80, 0x3E, 0x00,
+    0x00, 0xFF, 0x2F, 0x00
+  ]);
+
+  const result = parseMidi(SAMPLE_MIDI_MID_BEAT.buffer);
+  assert.equal(result.beats.length, 4, 'Should have 4 beats: [0, 0.5, 1.0, 1.5]');
+  assert.ok(Math.abs(result.beats[0] - 0) < 1e-9);
+  assert.ok(Math.abs(result.beats[1] - 0.5) < 1e-9);
+  assert.ok(Math.abs(result.beats[2] - 1.0) < 1e-9);
+  assert.ok(Math.abs(result.beats[3] - 1.5) < 1e-9, 'Must include beat after durationSec');
+});
