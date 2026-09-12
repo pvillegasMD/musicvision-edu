@@ -22,6 +22,7 @@
     <label>MIDI: <input type="file" id="midiInput" accept=".mid,.midi"></label>
     <label>WAV: <input type="file" id="wavInput" accept=".wav"></label>
     <button id="playBtn">Reproducir</button>
+    <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
   </div>
   <div id="status">
     <div id="midiStatus">Sin MIDI cargado.</div>
@@ -59,6 +60,9 @@
       lastActiveNoteColor: null,
       frozenTime: null
     };
+
+    state.wavGainNode = state.audioContext.createGain();
+    state.wavGainNode.connect(state.audioContext.destination);
 
     const PIXELS_PER_SECOND = 150;
     const PLAYHEAD_X = 120;
@@ -228,7 +232,7 @@
       resetNoteProgress();
       const node = state.audioContext.createBufferSource();
       node.buffer = state.audioBuffer;
-      node.connect(state.audioContext.destination);
+      node.connect(state.wavGainNode);
       state.sourceNode = node;
       state.playStartTime = state.audioContext.currentTime;
       node.start();
@@ -241,6 +245,10 @@
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
+
+    document.getElementById('muteWavCheckbox').addEventListener('change', (e) => {
+      state.wavGainNode.gain.value = e.target.checked ? 0 : 1;
+    });
 
     function updateLevelMeter(peak) {
       const bar = document.getElementById('levelMeterBar');
