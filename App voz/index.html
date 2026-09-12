@@ -23,6 +23,7 @@
     <label>WAV: <input type="file" id="wavInput" accept=".wav"></label>
     <button id="playBtn">Reproducir</button>
     <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
+    <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
   </div>
   <div id="status">
     <div id="midiStatus">Sin MIDI cargado.</div>
@@ -58,7 +59,9 @@
       activeNoteColor: null,
       lastActiveNoteIndex: null,
       lastActiveNoteColor: null,
-      frozenTime: null
+      frozenTime: null,
+      beats: [],
+      metronomeNodes: []
     };
 
     state.wavGainNode = state.audioContext.createGain();
@@ -179,6 +182,21 @@
       osc.stop(audioContext.currentTime + 0.16);
     }
 
+    function playMetronomeClick(audioContext, when) {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 1000;
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(0.15, when + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.03);
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start(when);
+      osc.stop(when + 0.04);
+      return osc;
+    }
+
     renderPianoRoll();
     requestAnimationFrame(mainLoop);
 
@@ -187,9 +205,10 @@
       if (!file) return;
       try {
         const buffer = await file.arrayBuffer();
-        const { notes, durationSec } = parseMidi(buffer);
+        const { notes, durationSec, beats } = parseMidi(buffer);
         state.notes = notes;
         state.durationSec = durationSec;
+        state.beats = beats;
         resetNoteProgress();
         document.getElementById('midiStatus').textContent =
           `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
@@ -197,6 +216,7 @@
       } catch (err) {
         state.notes = [];
         state.durationSec = 0;
+        state.beats = [];
         resetNoteProgress();
         document.getElementById('midiStatus').textContent =
           `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
@@ -228,6 +248,10 @@
         state.sourceNode.onended = null;
         state.sourceNode.stop();
       }
+      state.metronomeNodes.forEach((osc) => {
+        try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.metronomeNodes = [];
       state.frozenTime = null;
       resetNoteProgress();
       const node = state.audioContext.createBufferSource();
@@ -242,6 +266,12 @@
           state.sourceNode = null;
         }
       };
+      if (document.getElementById('metronomeCheckbox').checked) {
+        state.beats.forEach((beatTime) => {
+          const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
+          state.metronomeNodes.push(osc);
+        });
+      }
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
