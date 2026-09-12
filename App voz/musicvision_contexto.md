@@ -26,13 +26,15 @@ navegador. Sigue sin build, sin npm, sin librerías externas — abre con doble 
   implementación de la Etapa 2.
 - `docs/superpowers/plans/2026-09-11-app-voz-etapa3-deteccion-pitch.md` — plan de
   implementación de la Etapa 3.
+- `docs/superpowers/plans/2026-09-11-app-voz-etapa4-colores-afinacion.md` — plan de
+  implementación de la Etapa 4.
 
 ## Estado actual (2026-09-11)
-**Etapas 1, 2 y 3 completas e implementadas:** reproductor + piano roll estático,
-captura de micrófono con fader y medidor de nivel, y detección de pitch en tiempo
-real con lectura de nota en vivo ("Nota detectada: A4 (440.0 Hz, +3 cents)"). Todavía
-sin comparar el pitch cantado contra la nota objetivo del MIDI ni colorear el piano
-roll — eso es la Etapa 4.
+**Etapas 1, 2, 3 y 4 completas e implementadas:** reproductor + piano roll estático,
+captura de micrófono con fader y medidor de nivel, detección de pitch en tiempo real,
+y ahora el piano roll colorea cada nota en vivo según qué tan afinado está el usuario
+(verde/rojo/gris), congela un resumen bicolor al terminar cada nota, y suena un efecto
+corto cada vez que el usuario afina.
 
 Vive en una rama de git separada, **no mergeada todavía**: rama `worktree-app-voz-etapa1`
 (worktree en `.claude/worktrees/app-voz-etapa1`), creada sobre `fix/filenames-in-context-docs`.
@@ -44,7 +46,12 @@ español más claros). Etapa 3: 3 commits (`pitch-detection.js`, `note-utils.js`
 integración + unificación de los loops de render en uno solo) + 1 arreglo de su
 revisión final (filtro de nivel mínimo antes de intentar detectar pitch — sin esto,
 un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar que
-`NOTE_NAMES` quede como variable global del navegador). Los 18 tests de Node pasan.
+`NOTE_NAMES` quede como variable global del navegador). Etapa 4: 3 commits
+(`note-tuning.js`, seguimiento de progreso por nota, colores + sonido de éxito) + 1
+arreglo de su revisión final (el piano roll pintaba colores "en vivo" incluso cuando
+la reproducción no estaba realmente sonando — la primera nota aparecía gris antes de
+apretar Reproducir, y cargar una canción nueva después de que otra terminara la
+pintaba toda roja hasta volver a apretar Reproducir). Los 24 tests de Node pasan.
 
 ## Archivos
 - **`index.html`** — UI (inputs de MIDI/WAV, botón Reproducir, controles de
@@ -70,11 +77,22 @@ un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar 
 - **`note-utils.js`** — conversión pura de frecuencia a nota: `frequencyToMidi(freq)`,
   `midiToNoteName(midi)`, `describePitch(freq) -> {midi, noteName, cents}`. `midi` usa
   la misma escala que `note.pitch` de `midi-parser.js`, y `cents` es positivo si está
-  sobreafinado (agudo) — pensado para que la Etapa 4 compare directo contra
-  `state.notes` sin conversión de unidades. Mismo patrón de export dual.
+  sobreafinado (agudo). Mismo patrón de export dual. Ojo: esto es distinto de
+  `centsOffTarget` de `note-tuning.js` (ver abajo) — `describePitch` mide contra la
+  nota más cercana, `centsOffTarget` contra la nota objetivo del MIDI. Pueden dar
+  lecturas distintas al mismo tiempo (ver Pendientes).
+- **`note-tuning.js`** — matemática pura del estado de afinación por nota:
+  `centsOffTarget(freq, notaObjetivoMIDI)`, `isInTune(cents, tolerancia=50)`,
+  `noteStatus(nota, tiempoActual) -> 'upcoming'|'active'|'past'`,
+  `accumulateTuning(progreso, estáAfinadoAhora, deltaSegundos)`, `tuningRatio(progreso)`,
+  `liveNoteColor(frecuencia|null, notaObjetivoMIDI) -> 'in-tune'|'out-of-tune'|'no-signal'`.
+  Duplica a propósito una línea de fórmula que también está en `note-utils.js`
+  (`69 + 12*log2(f/440)`) en vez de depender de ese archivo — mismo criterio que el
+  `SAMPLE_MIDI_BYTES` duplicado de la Etapa 1: cada módulo puro queda independiente.
+  Mismo patrón de export dual.
 - **`tests/`** — tests de Node (`node --test`, sin instalar nada; ejecutar como
   `node --test tests/*.test.js` desde `App voz/` — `node --test tests/` a secas falla
-  en Node 24 por cómo resuelve el argumento de directorio) para los cinco archivos
+  en Node 24 por cómo resuelve el argumento de directorio) para los seis archivos
   puros de arriba, más `tests/fixtures/` con generadores de un MIDI y un WAV de prueba
   (`make-midi-fixture.js`, `make-wav-fixture.js`) y sus salidas ya generadas
   (`sample.mid`, `sample.wav`) — dos notas de 0.5s cada una, usadas tanto en los tests
@@ -150,10 +168,33 @@ un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar 
   sueltos de las Etapas 1 y 2): corre siempre desde que carga la página, y en cada
   frame actualiza el piano roll, y si hay una Voz activa, el medidor de nivel y la
   lectura de pitch — los tres leen el mismo instante, no relojes independientes
-  desincronizados. Esto lo dejaba pedido la revisión final de la Etapa 2, y de yapa
-  resolvió el pendiente del "último frame no determinístico" de la Etapa 1 (ahora el
-  piano roll siempre se asienta en t=0 después de terminar la reproducción, en vez de
-  saltar o congelarse según el timing exacto de `onended`).
+  desincronizados. Esto lo dejaba pedido la revisión final de la Etapa 2.
+
+## Características implementadas (Etapa 4)
+- **Color en vivo por nota, mientras está sonando**: verde si el pitch cantado está a
+  ±50 cents o menos de la nota objetivo del MIDI (`centsOffTarget` + `isInTune` de
+  `note-tuning.js`), rojo si se detecta un pitch claro pero fuera de esa tolerancia,
+  **gris** si no se detecta nada claro (silencio, muy bajo el nivel, o por debajo del
+  filtro de nivel mínimo de la Etapa 3). El gris es una decisión explícita tomada con
+  el usuario durante el diseño — el spec original solo tenía rojo/verde.
+- **Barra bicolor al terminar cada nota**: una vez que la nota ya sonó completa,
+  queda congelada mostrando verde a la izquierda (el % de su duración que estuvo
+  afinada) y rojo el resto — acá el gris/silencio se cuenta como "no afinado" junto
+  con el rojo, solo dos categorías en el resumen final, a diferencia del color en
+  vivo que tiene tres.
+- **Efecto de sonido de éxito**: un blip corto (oscilador + envolvente) suena cada vez
+  que la nota activa pasa a estar afinada (desde rojo o desde gris) — puede sonar más
+  de una vez en la misma nota si el usuario se desafina y vuelve a afinar.
+- **Acumuladores por nota** (`state.noteProgress`, un `{timeInTune, timeTotal}` por
+  nota): se resetean al cargar un MIDI nuevo y en cada click de "Reproducir", para que
+  repetir la canción sea siempre un intento limpio.
+- **Arreglo de "en vivo" vs. "congelado"**: la revisión final encontró que
+  `renderPianoRoll` pintaba colores como si la reproducción estuviera sonando aunque
+  no lo estuviera (la primera nota se veía gris antes de apretar Reproducir, y cargar
+  una canción nueva después de que otra terminara pintaba todo rojo). El fix hace que
+  el color "en vivo" (verde/rojo/gris) solo aplique mientras `state.sourceNode` es
+  real — el resto del tiempo, una nota que no tiene progreso real acumulado se ve
+  azul (todavía no cantada), no como un intento fallido.
 
 ## Decisiones técnicas
 - **Sin dependencias externas** en ningún archivo, ni siquiera en las utilidades de
@@ -196,11 +237,7 @@ un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar 
   sí está en un try/catch con mensaje en español — sería fácil alinear `play()` al
   mismo patrón si se retoma este punto.)
 - `<h1>App voz — Etapa 1</h1>` quedó desactualizado — dice Etapa 1 pero la app ya va
-  por la Etapa 3. Cambio cosmético de una palabra, pendiente hace dos etapas.
-- El comentario de `NOTE_COLOR` ("Etapa 1 has no pitch detection yet") también quedó
-  viejo — ya hay detección de pitch, solo que todavía no está conectada al color del
-  piano roll (eso sigue siendo Etapa 4). Cambio cosmético, se puede hacer junto con el
-  del `<h1>`.
+  por la Etapa 4. Cambio cosmético de una palabra, pendiente hace tres etapas.
 - `#micStatus` y `#pitchDisplay` no heredan el estilo de `#status` (quedan con
   tamaño/opacidad de texto normal en vez del estilo tenue de los otros mensajes de
   estado) — ya son tres líneas de estado con dos pesos visuales distintos, vale la
@@ -214,36 +251,71 @@ un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar 
   archivos cargados ni mic activo — decisión a propósito del plan de la Etapa 3
   (verificado barato: `renderPianoRoll()` con `state.notes` vacío es solo un
   `clearRect` + una línea). Si algo dentro de `mainLoop` llegara a tirar una
-  excepción, se corta el único loop de la app entera y la UI se congela sin aviso —
-  no hay ningún camino que tire hoy, pero valdría la pena envolver el loop en
-  `try {...} finally { requestAnimationFrame(mainLoop) }` antes de que la Etapa 4
-  meta más lógica (comparación de nota, cambios de estado) adentro del mismo tick.
+  excepción, se corta el único loop de la app entera y la UI se congela sin aviso.
+  Esto ya se había anotado antes de la Etapa 4 como algo para resolver "antes de meter
+  más lógica al mismo tick" — la Etapa 4 metió más lógica (`updateNoteProgress`,
+  `tuningRatio`) sin agregar el `try {...} finally { requestAnimationFrame(mainLoop) }`.
+  Ningún camino tira una excepción hoy (verificado en revisión), pero cada etapa que
+  pasa sin este guardarraíl aumenta el riesgo. Vale la pena resolverlo pronto.
 - `computeLevel()` en `audio-level.js` no tiene guarda para array vacío (da
   `rms: NaN`) — inconsistente con las guardas que sí tienen `pitchRange`/`pitchToY`
   en `piano-roll-geometry.js`. Riesgo real bajo: `AnalyserNode.getByteTimeDomainData()`
   nunca devuelve un array de largo 0.
 - `pitch-detection.js` no tiene límites de frecuencia mín/máx — detecta desde ~43Hz
   hasta ~22kHz, muy por fuera del rango vocal real (~65-1100Hz). Combinado con el
-  filtro de nivel ya agregado, achica pero no elimina la ventana de lecturas
-  fantasma. Agregar parámetros `minFrequency`/`maxFrequency` que acoten la búsqueda
-  de `tau` sería el lugar natural cuando llegue la Etapa 4.
+  filtro de nivel, achica pero no elimina la ventana de lecturas fantasma.
 - `describePitch()` en `note-utils.js` no está definida para entradas no positivas
   (`describePitch(0)` da `NaN`/nombres sin sentido) — hoy no es alcanzable porque
   `detectPitch` siempre devuelve `null` o un número finito positivo, pero podría
   volverse alcanzable si una etapa futura (calibración, un generador de secuencias)
   llama `describePitch` desde otro lado que no sea `detectPitch`.
 - Los tests de `note-utils.js` (heredados tal cual del plan) nunca afirman un caso de
-  `cents` claramente negativo/desafinado grave — se verificó a mano en revisión que
-  funciona bien (`describePitch(430)` → -39.8 cents), pero no está fijado en un test.
-  Vale la pena sumarlo antes de la Etapa 4, que depende del signo de `cents` en los
-  dos sentidos.
-- Tres llamadas a `renderPianoRoll()` quedaron "muertas" (redundantes, no rompen nada)
-  desde que `mainLoop` renderiza todo el tiempo: la inicial antes de arrancar el loop,
-  y las dos dentro del handler de carga de MIDI. Repintan ~16ms antes de lo necesario,
-  nada más — se podrían limpiar para que "un solo loop dibuja todo" sea cierto también
-  en el código, no solo en el diseño.
+  `cents` claramente negativo/desafinado grave — se verificó a mano que funciona bien
+  (`describePitch(430)` → -39.8 cents), pero no está fijado en un test.
+- Tres llamadas a `renderPianoRoll()` quedaron redundantes desde que `mainLoop`
+  renderiza todo el tiempo: la inicial antes de arrancar el loop, y las dos dentro del
+  handler de carga de MIDI. Con la Etapa 4 esto pasó de ser solo "repintar 16ms antes
+  de lo necesario" a potencialmente pintar con un `activeNoteIndex` del frame
+  anterior — se podrían limpiar para que "un solo loop dibuja todo" sea cierto también
+  en el código.
+- **Dos "cents" distintos, mostrados a la vez, medidos contra referencias distintas.**
+  `updatePitchDisplay` usa `describePitch` de `note-utils.js` (cents contra la nota
+  *más cercana*); el color en vivo usa `centsOffTarget` de `note-tuning.js` (cents
+  contra la nota *objetivo* del MIDI). Si el usuario canta una quinta justa de más,
+  puede leer "Nota detectada: G4 (+2 cents)" — se ve bien afinado — mientras la barra
+  está roja. Ninguna de las dos funciones está mal, es una inconsistencia de UX entre
+  dos features que ahora conviven en pantalla. Candidato para resolver en la Etapa de
+  calibración (mostrar "cents respecto al objetivo" en vez de "respecto a la más
+  cercana" cuando hay una nota activa).
+- **El efecto de sonido no tiene histeresis ni intervalo mínimo entre disparos.** Si
+  el pitch detectado oscila justo en el borde de ±50 cents o del umbral de nivel
+  (0.02), cada frame que vuelve a entrar en "afinado" dispara un blip nuevo — en el
+  peor caso, decenas por segundo. La verificación con oscilador sintético no lo
+  detecta porque un oscilador estable no tiembla así; solo aparece con un micrófono
+  real. El spec y el plan permiten explícitamente el re-disparo dinámico, así que esto
+  no es un bug — pero valdría la pena un mínimo de ~250ms entre blips en una pasada
+  futura.
+- **`deltaSeconds` no tiene techo.** Si la pestaña queda en segundo plano,
+  `requestAnimationFrame` se frena (a veces a ~1fps o menos) pero el audio y el reloj
+  siguen avanzando: al volver, un solo frame puede tener un `deltaSeconds` de varios
+  segundos, que se le atribuye entero a la nota activa en ese instante, mientras las
+  notas salteadas en el medio nunca acumulan nada y quedan rojas. Un
+  `Math.min(delta, 0.1)` acotaría el error. Prioridad baja para una app de uso propio.
+- **El % de afinación de la barra bicolor no descuenta la latencia del micrófono.**
+  El `AnalyserNode` entrega ~43ms de audio ya pasado (buffer de 2048 muestras a
+  44100Hz) más la latencia del dispositivo — cada muestra "afinada" se atribuye al
+  instante de reproducción ~40-60ms *después* de que el usuario realmente cantó esa
+  nota. No afecta mayor cosa al color en vivo, pero sesga el % final que se muestra
+  como resultado. La Etapa de calibración de latencia es el lugar natural para
+  corregir esto — por ahora, el número que se ve no es 100% objetivo.
 
-## Próximos pasos (según el spec, etapas 4–6)
+## Próximos pasos
+El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
+cuando el usuario pidió sumar mutear el WAV, un metrónomo, y un efecto de
+"desintegración" de notas no cantadas + parar la reproducción tras fallar varias
+seguidas. Se decidió partir esto en etapas más chicas en vez de meterlo todo junto en
+la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
+
 1. ~~Reproductor + piano roll estático~~ ✅ (Etapa 1, completa)
 2. ~~Captura de micrófono~~ ✅ (Etapa 2, completa — falta que un humano con
    micrófono real confirme el flujo real de permiso del navegador, que ninguna
@@ -251,11 +323,18 @@ un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar 
 3. ~~Detección de pitch en tiempo real~~ ✅ (Etapa 3, completa — mismo pendiente:
    falta confirmar con un micrófono real, sobre todo que el filtro de nivel mínimo
    funcione bien contra ruido de fondo real, no solo el simulado)
-4. Color dinámico por nota (azul → rojo/verde según afinación) + barra bicolor al
-   terminar cada nota (% de tiempo afinado) + efecto de sonido en la transición
-   rojo→verde
-5. Calibración de latencia mic↔piano roll
-6. (Opcional) Reproducción audible del MIDI como guía sonora
+4. ~~Color dinámico por nota (azul/verde/rojo/gris) + barra bicolor al terminar cada
+   nota + efecto de sonido en la transición a afinado~~ ✅ (Etapa 4, completa)
+5. Mutear el WAV + metrónomo — independiente de la lógica de afinación, no toca
+   `note-tuning.js` ni el sistema de color. El MIDI ya trae `ticksPerBeat` y los
+   eventos de tempo internamente (usados hoy solo para convertir ticks a segundos),
+   habría que exponerlos desde `parseMidi` para que el metrónomo sepa cuándo clickear.
+6. Desintegración visual de notas no cantadas + parar la reproducción tras varias
+   notas seguidas sin cantar — se apoya en `state.noteProgress` de la Etapa 4 (una
+   nota "no cantada" es una donde nunca hubo señal, no solo desafinada).
+7. Calibración de latencia mic↔piano roll (compensaría también el sesgo de latencia
+   anotado arriba, en el % de la barra bicolor)
+8. (Opcional) Reproducción audible del MIDI como guía sonora
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
 externa (modelado como un array de objetos "Voz", uno por fuente de audio), un
