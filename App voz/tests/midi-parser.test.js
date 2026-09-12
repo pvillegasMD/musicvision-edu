@@ -35,3 +35,11 @@ test('parseMidi rejects a buffer without a valid MThd header', () => {
   const badBytes = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
   assert.throws(() => parseMidi(badBytes.buffer), /No es un archivo MIDI válido/);
 });
+
+test('parseMidi exposes beat timestamps derived from ticksPerBeat and the tempo map', () => {
+  const result = parseMidi(SAMPLE_MIDI_BYTES.buffer);
+  assert.equal(result.beats.length, 3);
+  assert.ok(Math.abs(result.beats[0] - 0) < 1e-9);
+  assert.ok(Math.abs(result.beats[1] - 0.5) < 1e-9);
+  assert.ok(Math.abs(result.beats[2] - 1.0) < 1e-9);
+});

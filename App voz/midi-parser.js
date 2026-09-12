@@ -85,7 +85,18 @@ function parseMidi(buffer) {
   notes.sort((a, b) => a.start - b.start);
 
   const durationSec = notes.reduce((max, n) => Math.max(max, n.start + n.duration), 0);
-  return { notes, durationSec };
+
+  const beats = [];
+  let beatTick = 0;
+  const maxBeats = 100000; // safety cap against a corrupt/degenerate tempo map
+  while (beats.length < maxBeats) {
+    const t = tickToSeconds(beatTick);
+    if (beats.length > 0 && t > durationSec) break;
+    beats.push(t);
+    beatTick += ticksPerBeat;
+  }
+
+  return { notes, durationSec, beats };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
