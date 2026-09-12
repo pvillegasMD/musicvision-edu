@@ -102,6 +102,7 @@
       state.activeNoteColor = null;
       state.lastActiveNoteIndex = null;
       state.lastActiveNoteColor = null;
+      state.frozenTime = null;
     }
 
     function currentPlaybackTime() {
@@ -127,19 +128,21 @@
         rowHeight: ROW_HEIGHT
       };
 
+      const isLive = state.sourceNode !== null;
+
       state.notes.forEach((note, i) => {
         const rect = computeNoteRect(note, view);
         const status = noteStatus(note, currentTime);
 
-        if (status === 'upcoming') {
-          ctx.fillStyle = COLOR_UPCOMING;
-          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-        } else if (status === 'active') {
+        if (status === 'active' && isLive) {
           const color = i === state.activeNoteIndex ? state.activeNoteColor : 'no-signal';
           ctx.fillStyle =
             color === 'in-tune' ? COLOR_IN_TUNE :
             color === 'out-of-tune' ? COLOR_OUT_OF_TUNE :
             COLOR_NO_SIGNAL;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        } else if (status !== 'past') {
+          ctx.fillStyle = COLOR_UPCOMING;
           ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
         } else {
           const ratio = tuningRatio(state.noteProgress[i]);
