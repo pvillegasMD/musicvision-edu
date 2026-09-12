@@ -28,13 +28,15 @@ navegador. Sigue sin build, sin npm, sin librerías externas — abre con doble 
   implementación de la Etapa 3.
 - `docs/superpowers/plans/2026-09-11-app-voz-etapa4-colores-afinacion.md` — plan de
   implementación de la Etapa 4.
+- `docs/superpowers/plans/2026-09-11-app-voz-etapa5-mute-metronomo.md` — plan de
+  implementación de la Etapa 5.
 
-## Estado actual (2026-09-11)
-**Etapas 1, 2, 3 y 4 completas e implementadas:** reproductor + piano roll estático,
+## Estado actual (2026-09-12)
+**Etapas 1 a 5 completas e implementadas:** reproductor + piano roll estático,
 captura de micrófono con fader y medidor de nivel, detección de pitch en tiempo real,
-y ahora el piano roll colorea cada nota en vivo según qué tan afinado está el usuario
-(verde/rojo/gris), congela un resumen bicolor al terminar cada nota, y suena un efecto
-corto cada vez que el usuario afina.
+coloreado en vivo del piano roll según afinación con resumen bicolor y sonido de
+éxito, y ahora dos controles de reproducción más: mutear la pista WAV (en vivo, sin
+reiniciar) y un metrónomo que clickea en cada pulso del MIDI.
 
 Vive en una rama de git separada, **no mergeada todavía**: rama `worktree-app-voz-etapa1`
 (worktree en `.claude/worktrees/app-voz-etapa1`), creada sobre `fix/filenames-in-context-docs`.
@@ -51,18 +53,27 @@ un micrófono real mostraba notas fantasma por ruido de fondo/zumbido; y evitar 
 arreglo de su revisión final (el piano roll pintaba colores "en vivo" incluso cuando
 la reproducción no estaba realmente sonando — la primera nota aparecía gris antes de
 apretar Reproducir, y cargar una canción nueva después de que otra terminara la
-pintaba toda roja hasta volver a apretar Reproducir). Los 24 tests de Node pasan.
+pintaba toda roja hasta volver a apretar Reproducir). Etapa 5: 3 commits (pulsos del
+MIDI en `midi-parser.js`, mutear WAV, metrónomo) + 1 arreglo dentro de la Tarea 1
+(el cálculo de pulsos perdía el último click cuando la canción no terminaba justo en
+un pulso) + 1 arreglo de su revisión final (el gain de mutear no se sincronizaba con
+el checkbox al recargar la página — quedaba sonando aunque se viera tildado — y
+protección contra un MIDI con tempo corrupto que podía generar 100.000 pulsos y
+romper el metrónomo). Los 27 tests de Node pasan.
 
 ## Archivos
-- **`index.html`** — UI (inputs de MIDI/WAV, botón Reproducir, controles de
-  micrófono — botón, fader de ganancia, medidor de nivel, lectura de nota detectada —,
-  `<canvas id="pianoRoll">`), carga de archivos, reproducción con Web Audio API,
-  captura de micrófono, detección de pitch. Un solo `requestAnimationFrame` loop
-  (`mainLoop`) maneja todo — piano roll, medidor y pitch — corriendo siempre desde que
-  carga la página. Todo el JS de la app vive acá, inline.
+- **`index.html`** — UI (inputs de MIDI/WAV, botón Reproducir, checkbox de mutear
+  pista, checkbox de metrónomo, controles de micrófono — botón, fader de ganancia,
+  medidor de nivel, lectura de nota detectada —, `<canvas id="pianoRoll">`), carga de
+  archivos, reproducción con Web Audio API, captura de micrófono, detección de pitch.
+  Un solo `requestAnimationFrame` loop (`mainLoop`) maneja todo — piano roll, medidor
+  y pitch — corriendo siempre desde que carga la página. Todo el JS de la app vive
+  acá, inline (~400 líneas a esta altura).
 - **`midi-parser.js`** — parser MIDI binario puro (sin DOM), `DataView` a mano, sin
-  librerías. Expone `parseMidi(buffer) -> {notes: [{pitch, start, duration}], durationSec}`
-  (tiempos en segundos). Export dual: `module.exports` en Node, global en navegador.
+  librerías. Expone `parseMidi(buffer) -> {notes: [{pitch, start, duration}], durationSec, beats}`
+  (tiempos en segundos; `beats` es un array con el instante de cada pulso del MIDI,
+  reusando el mapa de tempo que el parser ya calculaba internamente — respeta cambios
+  de tempo si los hay). Export dual: `module.exports` en Node, global en navegador.
 - **`piano-roll-geometry.js`** — matemática de coordenadas pura: `pitchRange(notes)`,
   `pitchToY(pitch, minPitch, maxPitch, canvasHeight)`, `computeNoteRect(note, view)`.
   Mismo patrón de export dual.
@@ -196,6 +207,29 @@ pintaba toda roja hasta volver a apretar Reproducir). Los 24 tests de Node pasan
   real — el resto del tiempo, una nota que no tiene progreso real acumulado se ve
   azul (todavía no cantada), no como un intento fallido.
 
+## Características implementadas (Etapa 5)
+- **Mutear la pista WAV** (checkbox "Silenciar pista"): un `GainNode` persistente
+  (`state.wavGainNode`) se interpone entre cada `AudioBufferSourceNode` de
+  reproducción y los parlantes — antes iba directo. El checkbox cambia el gain en
+  vivo (0 o 1), sin reiniciar la reproducción. Al cargar la página también se
+  sincroniza el gain con el estado del checkbox (los navegadores restauran
+  checkboxes tildados al recargar; sin esto, la app podía sonar aunque el checkbox
+  se viera tildado — bug encontrado en la revisión final).
+- **Metrónomo** (checkbox "Metrónomo"): usa `state.beats` (los pulsos del MIDI que
+  ahora expone `parseMidi`). Al apretar "Reproducir", si el checkbox está tildado, se
+  programan TODOS los clicks del pulso de una sola vez con
+  `oscillator.start(momento exacto)` — no hace falta un scheduler tipo "lookahead",
+  Web Audio programa cada click con precisión de muestra sin importar el timing de
+  JavaScript. El click suena siempre, incluso con la pista muteada (conecta directo a
+  los parlantes, no pasa por `wavGainNode`) — misma independencia estructural que ya
+  tenía el sonido de éxito de la Etapa 4. **Simplificación a propósito**: tildar o
+  destildar el checkbox a mitad de canción no hace nada hasta el próximo "Reproducir"
+  — evita tener que cancelar/reprogramar clicks ya agendados.
+- **Protección contra tempo corrupto**: el cálculo de `beats` ahora corta si `t` deja
+  de ser un número finito, y si `ticksPerBeat` es 0 o negativo — sin esto, un MIDI con
+  un tempo degenerado podía generar 100.000 pulsos y romper el metrónomo al intentar
+  programar `oscillator.start(NaN)`.
+
 ## Decisiones técnicas
 - **Sin dependencias externas** en ningún archivo, ni siquiera en las utilidades de
   test/fixtures — todo Node built-in (`node:test`, `node:assert`, `fs`, `path`).
@@ -308,6 +342,22 @@ pintaba toda roja hasta volver a apretar Reproducir). Los 24 tests de Node pasan
   nota. No afecta mayor cosa al color en vivo, pero sesga el % final que se muestra
   como resultado. La Etapa de calibración de latencia es el lugar natural para
   corregir esto — por ahora, el número que se ve no es 100% objetivo.
+- **`state.durationSec` (del MIDI) vs. `audioBuffer.duration` (del WAV) — el mismo
+  pendiente de arriba, pero ahora con un síntoma audible.** Si el WAV es más corto
+  que el MIDI, el piano roll se congela (`frozenTime`) mientras el metrónomo sigue
+  clickeando hasta el final del MIDI; si es más largo, el metrónomo para antes de
+  tiempo. Antes este desalineamiento fallaba en silencio; ahora se escucha.
+- `state.frozenTime = null;` en `play()` es redundante — `resetNoteProgress()`,
+  llamado justo después, ya lo hace. Inofensivo, viene de la Etapa 4, pero ahora
+  convive con varias otras cosas en el mismo tramo de `play()` (limpieza de nodos del
+  metrónomo, reset de progreso, conexión del nuevo nodo) — sacar la línea redundante
+  haría ese tramo más fácil de leer la próxima vez que se le agregue algo.
+- **Proceso: la recomendación de "actualizar `musicvision_contexto.md` en cada plan"
+  nunca se escribió en ningún plan.** La revisión final de la Etapa 5 lo marcó: se
+  buscó en los 5 archivos de plan y ninguno menciona este archivo — la doc se
+  mantiene al día porque el controlador se acuerda de hacerlo después de cada
+  revisión final, no porque el plan se lo pida. Vale la pena convertirlo en un paso
+  explícito de la plantilla de plan, no dejarlo como costumbre.
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
@@ -325,10 +375,7 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
    funcione bien contra ruido de fondo real, no solo el simulado)
 4. ~~Color dinámico por nota (azul/verde/rojo/gris) + barra bicolor al terminar cada
    nota + efecto de sonido en la transición a afinado~~ ✅ (Etapa 4, completa)
-5. Mutear el WAV + metrónomo — independiente de la lógica de afinación, no toca
-   `note-tuning.js` ni el sistema de color. El MIDI ya trae `ticksPerBeat` y los
-   eventos de tempo internamente (usados hoy solo para convertir ticks a segundos),
-   habría que exponerlos desde `parseMidi` para que el metrónomo sepa cuándo clickear.
+5. ~~Mutear el WAV + metrónomo~~ ✅ (Etapa 5, completa)
 6. Desintegración visual de notas no cantadas + parar la reproducción tras varias
    notas seguidas sin cantar — se apoya en `state.noteProgress` de la Etapa 4 (una
    nota "no cantada" es una donde nunca hubo señal, no solo desafinada).
