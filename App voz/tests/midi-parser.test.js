@@ -66,3 +66,23 @@ test('parseMidi includes the beat at or after durationSec even when durationSec 
   assert.ok(Math.abs(result.beats[2] - 1.0) < 1e-9);
   assert.ok(Math.abs(result.beats[3] - 1.5) < 1e-9, 'Must include beat after durationSec');
 });
+
+test('parseMidi does not hang or produce the 100000-entry cap when ticksPerBeat is 0 (degenerate tempo map)', () => {
+  // Hand-built MIDI with division (ticksPerBeat) set to 0, an otherwise
+  // valid empty track (just end-of-track). With ticksPerBeat = 0,
+  // tickToSeconds(0) divides by zero and yields NaN on the very first
+  // beats-loop iteration. The guard clauses added for Finding 2 must stop
+  // the loop immediately (before pushing the NaN) rather than running to
+  // the 100000-entry safety cap or letting a non-finite value slip into
+  // the beats array (which would later crash osc.start(NaN) in the UI).
+  const SAMPLE_MIDI_ZERO_DIVISION = new Uint8Array([
+    0x4D, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+    0x4D, 0x54, 0x72, 0x6B, 0x00, 0x00, 0x00, 0x04,
+    0x00, 0xFF, 0x2F, 0x00
+  ]);
+
+  const result = parseMidi(SAMPLE_MIDI_ZERO_DIVISION.buffer);
+
+  assert.ok(result.beats.length < 100, 'beats array must stay small, not run to the 100000 cap');
+  assert.ok(result.beats.every(Number.isFinite), 'no NaN/Infinity beat timestamps should be pushed');
+});

@@ -66,6 +66,7 @@
 
     state.wavGainNode = state.audioContext.createGain();
     state.wavGainNode.connect(state.audioContext.destination);
+    state.wavGainNode.gain.value = document.getElementById('muteWavCheckbox').checked ? 0 : 1;
 
     const PIXELS_PER_SECOND = 150;
     const PLAYHEAD_X = 120;
