@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { frequencyToMidi, midiToNoteName, describePitch, playbackRateForNote } = require('../note-utils.js');
+const { frequencyToMidi, midiToNoteName, describePitch, playbackRateForNote, transposeNotes } = require('../note-utils.js');
 
 test('frequencyToMidi maps 440Hz to MIDI 69 (A4)', () => {
   assert.ok(Math.abs(frequencyToMidi(440) - 69) < 1e-9);
@@ -46,4 +46,30 @@ test('playbackRateForNote doubles for an octave up and halves for an octave down
 test('playbackRateForNote matches the equal-tempered ratio for a non-octave interval', () => {
   const result = playbackRateForNote(67, 60); // perfect fifth up
   assert.ok(Math.abs(result - 1.4983070768766815) < 1e-9);
+});
+
+test('transposeNotes shifts pitch by the given semitones and leaves start/duration untouched', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }, { pitch: 64, start: 1, duration: 0.5 }];
+  const result = transposeNotes(notes, -12);
+  assert.deepEqual(result, [
+    { pitch: 48, start: 0, duration: 1 },
+    { pitch: 52, start: 1, duration: 0.5 }
+  ]);
+});
+
+test('transposeNotes with 0 semitones returns equivalent notes', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
+  const result = transposeNotes(notes, 0);
+  assert.deepEqual(result, notes);
+});
+
+test('transposeNotes does not mutate the input array or its notes', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
+  const original = JSON.parse(JSON.stringify(notes));
+  transposeNotes(notes, -24);
+  assert.deepEqual(notes, original);
+});
+
+test('transposeNotes handles an empty array', () => {
+  assert.deepEqual(transposeNotes([], -12), []);
 });

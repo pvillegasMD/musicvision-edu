@@ -20,6 +20,13 @@
   <h1>App voz — Etapa 1</h1>
   <div class="controls">
     <label>MIDI: <input type="file" id="midiInput" accept=".mid,.midi"></label>
+    <label>Tipo de voz:
+      <select id="voiceTypeSelect">
+        <option value="0" selected>Original (sin transportar)</option>
+        <option value="-12">Voz masculina (-1 octava)</option>
+        <option value="-24">Bajo/Barítono (-2 octavas)</option>
+      </select>
+    </label>
     <label>WAV: <input type="file" id="wavInput" accept=".wav"></label>
     <label>Instrumento: <input type="file" id="instrumentInput" accept=".wav"></label>
     <label>Nota de referencia: <input type="number" id="instrumentReferenceNote" min="0" max="127" value="60"></label>
@@ -59,6 +66,7 @@
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
       audioBuffer: null,
       notes: [],
+      originalNotes: [],
       durationSec: 0,
       sourceNode: null,
       playStartTime: 0,
@@ -153,6 +161,25 @@
       state.lastActiveNoteColor = null;
       state.frozenTime = null;
       state.pitchHistory = [];
+    }
+
+    function getSelectedSemitones() {
+      const select = document.getElementById('voiceTypeSelect');
+      const value = parseInt(select.value, 10);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function getSelectedVoiceTypeLabel() {
+      const select = document.getElementById('voiceTypeSelect');
+      return select.options[select.selectedIndex].textContent;
+    }
+
+    function formatMidiStatusText(notes, durationSec) {
+      if (!notes.length) return 'Sin MIDI cargado.';
+      const label = getSelectedVoiceTypeLabel();
+      const { minPitch, maxPitch } = pitchRange(notes);
+      const rangeText = `${midiToNoteName(minPitch)}–${midiToNoteName(maxPitch)}`;
+      return `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s — ${label}, rango ${rangeText}`;
     }
 
     function currentPlaybackTime() {
@@ -312,15 +339,17 @@
       try {
         const buffer = await file.arrayBuffer();
         const { notes, durationSec, beats } = parseMidi(buffer);
-        state.notes = notes;
+        state.originalNotes = notes;
+        state.notes = transposeNotes(notes, getSelectedSemitones());
         state.durationSec = durationSec;
         state.beats = beats;
         resetNoteProgress();
         document.getElementById('midiStatus').textContent =
-          `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
+          formatMidiStatusText(state.notes, durationSec);
         renderPianoRoll();
       } catch (err) {
         state.notes = [];
+        state.originalNotes = [];
         state.durationSec = 0;
         state.beats = [];
         resetNoteProgress();
@@ -328,6 +357,14 @@
           `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
         renderPianoRoll();
       }
+    });
+
+    document.getElementById('voiceTypeSelect').addEventListener('change', () => {
+      state.notes = transposeNotes(state.originalNotes, getSelectedSemitones());
+      resetNoteProgress();
+      document.getElementById('midiStatus').textContent =
+        formatMidiStatusText(state.notes, state.durationSec);
+      renderPianoRoll();
     });
 
     document.getElementById('wavInput').addEventListener('change', async (e) => {
@@ -393,6 +430,7 @@
       resetNoteProgress();
       state.lastSignalTime = 0;
       document.getElementById('playbackStatus').textContent = '';
+      document.getElementById('voiceTypeSelect').disabled = true;
       const node = state.audioContext.createBufferSource();
       node.buffer = state.audioBuffer;
       node.connect(state.wavGainNode);
@@ -403,6 +441,7 @@
         if (state.sourceNode === node) {
           state.frozenTime = state.audioContext.currentTime - state.playStartTime;
           state.sourceNode = null;
+          document.getElementById('voiceTypeSelect').disabled = false;
         }
       };
       if (document.getElementById('metronomeCheckbox').checked) {
@@ -442,6 +481,7 @@
       });
       state.instrumentNodes = [];
       document.getElementById('playbackStatus').textContent = reason;
+      document.getElementById('voiceTypeSelect').disabled = false;
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
