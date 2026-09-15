@@ -38,20 +38,27 @@ navegador. Sigue sin build, sin npm, sin librerías externas — abre con doble 
   spec de diseño de la Etapa 7.
 - `docs/superpowers/plans/2026-09-15-app-voz-etapa7-calibracion-linea-canto.md` — plan
   de implementación de la Etapa 7.
+- `docs/superpowers/specs/2026-09-15-app-voz-etapa8-reproduccion-midi-audible-design.md` —
+  spec de diseño de la Etapa 8.
+- `docs/superpowers/plans/2026-09-15-app-voz-etapa8-reproduccion-midi-audible.md` — plan
+  de implementación de la Etapa 8.
 
 ## Estado actual (2026-09-15)
-**Etapas 1 a 7 completas e implementadas:** reproductor + piano roll estático,
-captura de micrófono con fader y medidor de nivel, detección de pitch en tiempo real,
-coloreado en vivo del piano roll según afinación con resumen bicolor y sonido de
-éxito, mutear la pista WAV (en vivo, sin reiniciar) y un metrónomo que clickea en cada
-pulso del MIDI, las notas nunca cantadas se desintegran visualmente en vez de quedar
-rojas, la reproducción se detiene sola si el usuario deja de cantar por varios pulsos
-seguidos, reproducir sin micrófono activo ya no pinta las notas grises sino que
-muestra una línea guía sobre el pitch objetivo, y ahora además: una línea de canto en
-tiempo real (la idea del brief original, nunca construida hasta ahora) se dibuja sobre
-el piano roll mientras el usuario canta, y una calibración interactiva de latencia
-("Calibrar latencia", decir "Ta" en 4 clicks) corrige tanto esa línea como el color de
-las notas y el auto-stop.
+**Etapas 1 a 8 completas e implementadas — el roadmap original ya no tiene etapas
+pendientes.** Reproductor + piano roll estático, captura de micrófono con fader y
+medidor de nivel, detección de pitch en tiempo real, coloreado en vivo del piano roll
+según afinación con resumen bicolor y sonido de éxito, mutear la pista WAV (en vivo,
+sin reiniciar) y un metrónomo que clickea en cada pulso del MIDI, las notas nunca
+cantadas se desintegran visualmente en vez de quedar rojas, la reproducción se detiene
+sola si el usuario deja de cantar por varios pulsos seguidos, reproducir sin micrófono
+activo ya no pinta las notas grises sino que muestra una línea guía sobre el pitch
+objetivo, una línea de canto en tiempo real (la idea del brief original, nunca
+construida hasta ahora) se dibuja sobre el piano roll mientras el usuario canta, una
+calibración interactiva de latencia ("Calibrar latencia", decir "Ta" en 4 clicks)
+corrige tanto esa línea como el color de las notas y el auto-stop, y ahora además: el
+MIDI se puede escuchar como guía sonora — un sample de instrumento que el usuario
+carga (una nota grabada real, no un oscilador) se reproduce pitch-shifteado para cada
+nota de la canción.
 
 Vive en una rama de git separada, **no mergeada todavía**: rama `worktree-app-voz-etapa1`
 (worktree en `.claude/worktrees/app-voz-etapa1`), creada sobre `fix/filenames-in-context-docs`.
@@ -92,18 +99,21 @@ mutuamente excluyentes; y el umbral de detección de la calibración —
 detectedFrequency !== null en vez de peak > 0.02, un bug mío en el propio plan — podía
 sesgar la medición o confundir el click del metrónomo con la "Ta" del usuario, resuelto
 agregando una zona muerta de 50ms y usando el mismo umbral de nivel que el resto de la
-app). Los 44 tests de Node pasan.
+app). Etapa 8: 3 commits (función pura playbackRateForNote, carga del sample de
+instrumento + nota de referencia, programación/reproducción de las notas sampleadas) —
+sin arreglos de revisión final, la rama quedó limpia. Los 47 tests de Node pasan.
 
 ## Archivos
-- **`index.html`** — UI (inputs de MIDI/WAV, botón Reproducir, checkbox de mutear
-  pista, checkbox de metrónomo, controles de micrófono — botón, fader de ganancia,
-  medidor de nivel, lectura de nota detectada —, botón "Calibrar latencia" + estado de
-  latencia, mensaje de estado de reproducción, `<canvas id="pianoRoll">`), carga de
-  archivos, reproducción con Web Audio API, captura de micrófono, detección de pitch.
-  Un solo `requestAnimationFrame` loop (`mainLoop`) maneja todo — piano roll, medidor,
-  pitch, el chequeo de parada automática, el historial de pitch para la línea de
-  canto, y los intentos de calibración — corriendo siempre desde que carga la página.
-  Todo el JS de la app vive acá, inline (~500 líneas a esta altura).
+- **`index.html`** — UI (inputs de MIDI/WAV/instrumento, campo de nota de referencia,
+  botón Reproducir, checkbox de mutear pista, checkbox de metrónomo, checkbox
+  "Reproducir MIDI", controles de micrófono — botón, fader de ganancia, medidor de
+  nivel, lectura de nota detectada —, botón "Calibrar latencia" + estado de latencia,
+  mensaje de estado de reproducción, `<canvas id="pianoRoll">`), carga de archivos,
+  reproducción con Web Audio API, captura de micrófono, detección de pitch. Un solo
+  `requestAnimationFrame` loop (`mainLoop`) maneja todo — piano roll, medidor, pitch,
+  el chequeo de parada automática, el historial de pitch para la línea de canto, y los
+  intentos de calibración — corriendo siempre desde que carga la página. Todo el JS de
+  la app vive acá, inline (~550 líneas a esta altura).
 - **`midi-parser.js`** — parser MIDI binario puro (sin DOM), `DataView` a mano, sin
   librerías. Expone `parseMidi(buffer) -> {notes: [{pitch, start, duration}], durationSec, beats}`
   (tiempos en segundos; `beats` es un array con el instante de cada pulso del MIDI,
@@ -140,12 +150,16 @@ app). Los 44 tests de Node pasan.
   todavía (detecta desde ~43Hz hasta ~22kHz, más allá del rango vocal real). Mismo
   patrón de export dual.
 - **`note-utils.js`** — conversión pura de frecuencia a nota: `frequencyToMidi(freq)`,
-  `midiToNoteName(midi)`, `describePitch(freq) -> {midi, noteName, cents}`. `midi` usa
-  la misma escala que `note.pitch` de `midi-parser.js`, y `cents` es positivo si está
-  sobreafinado (agudo). Mismo patrón de export dual. Ojo: esto es distinto de
-  `centsOffTarget` de `note-tuning.js` (ver abajo) — `describePitch` mide contra la
-  nota más cercana, `centsOffTarget` contra la nota objetivo del MIDI. Pueden dar
-  lecturas distintas al mismo tiempo (ver Pendientes).
+  `midiToNoteName(midi)`, `describePitch(freq) -> {midi, noteName, cents}`,
+  `playbackRateForNote(targetMidi, referenceMidi) -> number` (Etapa 8 —
+  `2^((targetMidi-referenceMidi)/12)`, la relación de velocidad de reproducción que
+  retunea un sample grabado en `referenceMidi` para que suene como `targetMidi`;
+  misma técnica que cualquier sampler barato). `midi` usa la misma escala que
+  `note.pitch` de `midi-parser.js`, y `cents` es positivo si está sobreafinado
+  (agudo). Mismo patrón de export dual. Ojo: esto es distinto de `centsOffTarget` de
+  `note-tuning.js` (ver abajo) — `describePitch` mide contra la nota más cercana,
+  `centsOffTarget` contra la nota objetivo del MIDI. Pueden dar lecturas distintas al
+  mismo tiempo (ver Pendientes).
 - **`note-tuning.js`** — matemática pura del estado de afinación por nota:
   `centsOffTarget(freq, notaObjetivoMIDI)`, `isInTune(cents, tolerancia=50)`,
   `noteStatus(nota, tiempoActual) -> 'upcoming'|'active'|'past'`,
@@ -377,6 +391,34 @@ app). Los 44 tests de Node pasan.
   del usuario. Se corrigió gateando en `peak > 0.02` y agregando
   `CALIBRATION_DEAD_ZONE_SEC = 0.05` antes de que cualquier detección cuente.
 
+## Características implementadas (Etapa 8)
+- **Reproducción audible del MIDI**, la última característica del roadmap original
+  (marcada "opcional" desde el brief inicial). En vez de sintetizar con un oscilador,
+  usa un **sample real**: el usuario carga un WAV (input "Instrumento") con una nota
+  grabada de un instrumento — durante el diseño se verificó con una nota de coro "ooh"
+  de una librería Garritan del usuario (PCM estéreo 16 bits 44100Hz, sin header, un
+  formato de sample library — se convirtió a WAV estándar con un script aparte, fuera
+  de la app, antes de cargarla) — y un campo numérico ("Nota de referencia", default
+  60 = C4) le dice a la app qué nota MIDI representa ese sample.
+- **Checkbox "Reproducir MIDI"**, mismo comportamiento que el del metrónomo (Etapa 5):
+  decidido una sola vez al apretar "Reproducir", suena siempre que esté tildado y haya
+  un sample cargado, **sin importar si la pista WAV está muteada** — conecta directo a
+  `audioContext.destination`, nunca pasa por `state.wavGainNode`. Al apretar
+  "Reproducir" se programa una nota por cada entrada de `state.notes`, todas de una
+  sola vez (mismo patrón sample-accurate que ya usa el metrónomo): cada
+  `AudioBufferSourceNode` usa `playbackRateForNote(nota.pitch, notaReferencia)` para
+  afinarse, y un `GainNode` por nota hace un fade-out lineal de 20ms antes del
+  `stop()` para evitar el "click" de cortar el sample de golpe a mitad de ciclo.
+- **`state.instrumentNodes`** se limpia y repuebla en cada "Reproducir" (mismo patrón
+  que `state.metronomeNodes`), y también se limpia en `stopPlayback()` (el auto-stop
+  de la Etapa 6) — así una nota sampleada no sigue sonando después de que el resto de
+  la reproducción se corta por silencio.
+- **No se parsea `.sfz`/`.sf2` en la app** — la nota de referencia se ingresa a mano.
+  No se usan los loop points del sample (se reproduce desde el inicio y se corta a la
+  duración de la nota). Un solo sample para todo el rango — pasar a varios samples
+  repartidos (si el pitch-shift se nota artificial en notas muy alejadas de la
+  referencia) queda como extensión aditiva futura, no un rediseño.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -572,7 +614,33 @@ app). Los 44 tests de Node pasan.
 - `play()` sigue acumulando líneas en el mismo tramo (limpieza de nodos del
   metrónomo, reset de progreso, `state.lastSignalTime`, limpieza de
   `#playbackStatus`, conexión del nuevo nodo) — ya se había anotado esto en la Etapa 5
-  con `state.frozenTime = null;`, y la Etapa 6 agregó dos líneas más al mismo tramo.
+  con `state.frozenTime = null;`, la Etapa 6 agregó dos líneas más al mismo tramo, y la
+  Etapa 8 sumó la limpieza de `state.instrumentNodes` justo al lado de la de
+  `state.metronomeNodes`.
+- **El mismo desalineamiento WAV/MIDI (ver pendiente de arriba) ahora tiene un tercer
+  síntoma audible.** (Etapa 8) Si el WAV es más corto que el MIDI, además del piano
+  roll congelado y el metrónomo que sigue clickeando, ahora la guía sampleada también
+  sigue "cantando" hasta el final del MIDI — las notas del instrumento se programan
+  contra la duración del MIDI, no del WAV, y solo `stopPlayback()`/el próximo
+  "Reproducir" las cortan (el `onended` natural del WAV no las toca). Mismo pendiente
+  de fondo, un síntoma más.
+- **El patrón de "limpiar y resetear" un array de nodos programados
+  (`metronomeNodes`, `instrumentNodes`) está duplicado 4 veces** (Etapa 8) — dos
+  arrays × dos lugares que terminan una reproducción (`play()` al reiniciar y
+  `stopPlayback()`). Cada bloque es idéntico salvo el array. Una función
+  `stopAndClearNodes(nodes)` los colapsaría a una línea cada uno — encontrado en la
+  revisión final de la rama, no bloqueante, candidato para la próxima vez que se
+  toque ese tramo de `play()`/`stopPlayback()`.
+- **`#instrumentReferenceNote` no valida su rango en tiempo de ejecución.** (Etapa 8)
+  `min="0" max="127"` en el HTML es solo una sugerencia para el input numérico — nada
+  impide escribir a mano un valor como `999`, lo que produce un `playbackRate`
+  absurdo. No revienta nada (el usuario lo escucha y lo corrige al toque), pero un
+  `Math.min(127, Math.max(0, valor))` lo dejaría prolijo.
+- **Sin atenuación por voz en la guía sampleada.** (Etapa 8) Cada nota programada
+  suena a ganancia 1 — un MIDI polifónico (varias notas sonando a la vez) sumado a la
+  pista WAV podría saturar la salida. El spec ya dejó anotado un control de volumen
+  dedicado para el instrumento como extensión futura no bloqueante; queda más
+  relevante ahora que con el metrónomo (que era monofónico, un solo click a la vez).
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
@@ -595,7 +663,8 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
    pulsos seguidos sin cantar~~ ✅ (Etapa 6, completa)
 7. ~~Calibración de latencia mic↔piano roll + línea de canto en tiempo real (idea
    original del brief, retomada)~~ ✅ (Etapa 7, completa)
-8. (Opcional) Reproducción audible del MIDI como guía sonora
+8. ~~Reproducción audible del MIDI como guía sonora~~ ✅ (Etapa 8, completa — el
+   roadmap original ya no tiene etapas pendientes)
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
 externa (modelado como un array de objetos "Voz", uno por fuente de audio), un
