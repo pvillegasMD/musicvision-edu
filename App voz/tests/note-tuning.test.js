@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { centsOffTarget, isInTune, noteStatus, accumulateTuning, tuningRatio, liveNoteColor } = require('../note-tuning.js');
+const { centsOffTarget, isInTune, noteStatus, accumulateTuning, tuningRatio, liveNoteColor, noteWasSung } = require('../note-tuning.js');
 
 test('centsOffTarget is 0 for an exact match, positive when sharp, negative when flat', () => {
   assert.ok(Math.abs(centsOffTarget(440, 69)) < 1e-6);
@@ -44,4 +44,10 @@ test('liveNoteColor returns no-signal for null, in-tune/out-of-tune otherwise', 
   assert.equal(liveNoteColor(null, 69), 'no-signal');
   assert.equal(liveNoteColor(440, 69), 'in-tune');
   assert.equal(liveNoteColor(400, 69), 'out-of-tune');
+});
+
+test('noteWasSung reflects the hadSignal flag on a note progress entry', () => {
+  assert.equal(noteWasSung({ timeInTune: 0, timeTotal: 0, hadSignal: false }), false);
+  assert.equal(noteWasSung({ timeInTune: 0, timeTotal: 0, hadSignal: true }), true);
+  assert.equal(noteWasSung({ timeInTune: 0, timeTotal: 0 }), false);
 });

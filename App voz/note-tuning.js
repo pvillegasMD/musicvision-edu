@@ -30,6 +30,10 @@ function liveNoteColor(detectedFrequency, targetMidi, tolerance = 50) {
   return isInTune(centsOffTarget(detectedFrequency, targetMidi), tolerance) ? 'in-tune' : 'out-of-tune';
 }
 
+function noteWasSung(progress) {
+  return progress.hadSignal === true;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { centsOffTarget, isInTune, noteStatus, accumulateTuning, tuningRatio, liveNoteColor };
+  module.exports = { centsOffTarget, isInTune, noteStatus, accumulateTuning, tuningRatio, liveNoteColor, noteWasSung };
 }
