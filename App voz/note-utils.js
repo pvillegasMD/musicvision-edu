@@ -21,6 +21,10 @@ function describePitch(frequency) {
   };
 }
 
+function playbackRateForNote(targetMidi, referenceMidi) {
+  return Math.pow(2, (targetMidi - referenceMidi) / 12);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { frequencyToMidi, midiToNoteName, describePitch };
+  module.exports = { frequencyToMidi, midiToNoteName, describePitch, playbackRateForNote };
 }

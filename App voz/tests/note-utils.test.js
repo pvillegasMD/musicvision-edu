@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { frequencyToMidi, midiToNoteName, describePitch } = require('../note-utils.js');
+const { frequencyToMidi, midiToNoteName, describePitch, playbackRateForNote } = require('../note-utils.js');
 
 test('frequencyToMidi maps 440Hz to MIDI 69 (A4)', () => {
   assert.ok(Math.abs(frequencyToMidi(440) - 69) < 1e-9);
@@ -32,4 +32,18 @@ test('describePitch reports positive cents for a sharp note and stays within +/-
   assert.equal(result.midi, 69);
   assert.equal(result.noteName, 'A4');
   assert.ok(result.cents > 0 && result.cents < 50);
+});
+
+test('playbackRateForNote returns 1 when the target note matches the reference', () => {
+  assert.equal(playbackRateForNote(60, 60), 1);
+});
+
+test('playbackRateForNote doubles for an octave up and halves for an octave down', () => {
+  assert.equal(playbackRateForNote(72, 60), 2);
+  assert.equal(playbackRateForNote(48, 60), 0.5);
+});
+
+test('playbackRateForNote matches the equal-tempered ratio for a non-octave interval', () => {
+  const result = playbackRateForNote(67, 60); // perfect fifth up
+  assert.ok(Math.abs(result - 1.4983070768766815) < 1e-9);
 });
