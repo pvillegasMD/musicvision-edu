@@ -30,13 +30,20 @@ navegador. Sigue sin build, sin npm, sin librerías externas — abre con doble 
   implementación de la Etapa 4.
 - `docs/superpowers/plans/2026-09-11-app-voz-etapa5-mute-metronomo.md` — plan de
   implementación de la Etapa 5.
+- `docs/superpowers/specs/2026-09-14-app-voz-etapa6-desintegracion-autostop-design.md` —
+  spec de diseño de la Etapa 6.
+- `docs/superpowers/plans/2026-09-14-app-voz-etapa6-desintegracion-autostop.md` — plan
+  de implementación de la Etapa 6.
 
-## Estado actual (2026-09-12)
-**Etapas 1 a 5 completas e implementadas:** reproductor + piano roll estático,
+## Estado actual (2026-09-15)
+**Etapas 1 a 6 completas e implementadas:** reproductor + piano roll estático,
 captura de micrófono con fader y medidor de nivel, detección de pitch en tiempo real,
 coloreado en vivo del piano roll según afinación con resumen bicolor y sonido de
-éxito, y ahora dos controles de reproducción más: mutear la pista WAV (en vivo, sin
-reiniciar) y un metrónomo que clickea en cada pulso del MIDI.
+éxito, mutear la pista WAV (en vivo, sin reiniciar) y un metrónomo que clickea en cada
+pulso del MIDI, y ahora además: las notas nunca cantadas se desintegran visualmente en
+vez de quedar rojas, la reproducción se detiene sola si el usuario deja de cantar por
+varios pulsos seguidos, y reproducir sin micrófono activo ya no pinta las notas grises
+sino que muestra una línea guía sobre el pitch objetivo.
 
 Vive en una rama de git separada, **no mergeada todavía**: rama `worktree-app-voz-etapa1`
 (worktree en `.claude/worktrees/app-voz-etapa1`), creada sobre `fix/filenames-in-context-docs`.
@@ -59,24 +66,43 @@ MIDI en `midi-parser.js`, mutear WAV, metrónomo) + 1 arreglo dentro de la Tarea
 un pulso) + 1 arreglo de su revisión final (el gain de mutear no se sincronizaba con
 el checkbox al recargar la página — quedaba sonando aunque se viera tildado — y
 protección contra un MIDI con tempo corrupto que podía generar 100.000 pulsos y
-romper el metrónomo). Los 27 tests de Node pasan.
+romper el metrónomo). Etapa 6: 7 commits (funciones puras noteWasSung,
+countSilentBeats/silence-guard.js, desintegrationProgress, seguimiento de hadSignal,
+gate hasMic() + línea guía, desintegración visual, parada automática) + 1 arreglo de
+la revisión final de toda la rama (la parada automática contaba cualquier pulso
+silencioso, incluidos los de una introducción o interludio instrumental sin ninguna
+nota; una intro de 2 compases bastaba para parar la reproducción antes de que el
+usuario llegara a cantar. Se corrigió reemplazando countSilentBeats por
+countUnsungBeats(beats, notes, sinceTime, uptoTime), que solo cuenta pulsos que caen
+dentro de una nota y olvida la racha tras 4 pulsos seguidos en un hueco — diseño
+indicado explícitamente por el usuario). Los 35 tests de Node pasan.
 
 ## Archivos
 - **`index.html`** — UI (inputs de MIDI/WAV, botón Reproducir, checkbox de mutear
   pista, checkbox de metrónomo, controles de micrófono — botón, fader de ganancia,
-  medidor de nivel, lectura de nota detectada —, `<canvas id="pianoRoll">`), carga de
-  archivos, reproducción con Web Audio API, captura de micrófono, detección de pitch.
-  Un solo `requestAnimationFrame` loop (`mainLoop`) maneja todo — piano roll, medidor
-  y pitch — corriendo siempre desde que carga la página. Todo el JS de la app vive
-  acá, inline (~400 líneas a esta altura).
+  medidor de nivel, lectura de nota detectada —, mensaje de estado de reproducción,
+  `<canvas id="pianoRoll">`), carga de archivos, reproducción con Web Audio API,
+  captura de micrófono, detección de pitch. Un solo `requestAnimationFrame` loop
+  (`mainLoop`) maneja todo — piano roll, medidor, pitch, y ahora también el chequeo de
+  parada automática — corriendo siempre desde que carga la página. Todo el JS de la
+  app vive acá, inline (~440 líneas a esta altura).
 - **`midi-parser.js`** — parser MIDI binario puro (sin DOM), `DataView` a mano, sin
   librerías. Expone `parseMidi(buffer) -> {notes: [{pitch, start, duration}], durationSec, beats}`
   (tiempos en segundos; `beats` es un array con el instante de cada pulso del MIDI,
   reusando el mapa de tempo que el parser ya calculaba internamente — respeta cambios
   de tempo si los hay). Export dual: `module.exports` en Node, global en navegador.
 - **`piano-roll-geometry.js`** — matemática de coordenadas pura: `pitchRange(notes)`,
-  `pitchToY(pitch, minPitch, maxPitch, canvasHeight)`, `computeNoteRect(note, view)`.
-  Mismo patrón de export dual.
+  `pitchToY(pitch, minPitch, maxPitch, canvasHeight)`, `computeNoteRect(note, view)`,
+  `desintegrationProgress(currentTime, noteEndTime, scrollOutDurationSec) -> 0..1`
+  (Etapa 6 — progreso de la animación de desvanecer/achicar una nota no cantada, según
+  cuánto tiempo pasó desde que terminó de cruzar el playhead). Mismo patrón de export
+  dual.
+- **`silence-guard.js`** (Etapa 6) — lógica pura de la parada automática:
+  `countUnsungBeats(beats, notes, sinceTime, uptoTime) -> number`. Cuenta solo los
+  pulsos del MIDI que caen dentro de alguna nota (donde había algo para cantar) sin
+  señal de voz desde `sinceTime`; los pulsos que caen en un hueco (intro, interludio,
+  outro) nunca cuentan, y una racha de 4 pulsos seguidos en un hueco borra cualquier
+  conteo parcial acumulado antes de ese hueco. Mismo patrón de export dual.
 - **`audio-level.js`** — matemática de nivel de audio pura: `computeLevel(byteTimeDomainData) -> {rms, peak}`,
   normalizado 0-1, a partir de los bytes que entrega `AnalyserNode.getByteTimeDomainData()`.
   Mismo patrón de export dual.
@@ -96,14 +122,16 @@ romper el metrónomo). Los 27 tests de Node pasan.
   `centsOffTarget(freq, notaObjetivoMIDI)`, `isInTune(cents, tolerancia=50)`,
   `noteStatus(nota, tiempoActual) -> 'upcoming'|'active'|'past'`,
   `accumulateTuning(progreso, estáAfinadoAhora, deltaSegundos)`, `tuningRatio(progreso)`,
-  `liveNoteColor(frecuencia|null, notaObjetivoMIDI) -> 'in-tune'|'out-of-tune'|'no-signal'`.
+  `liveNoteColor(frecuencia|null, notaObjetivoMIDI) -> 'in-tune'|'out-of-tune'|'no-signal'`,
+  `noteWasSung(progreso) -> boolean` (Etapa 6 — `true` solo si `progreso.hadSignal`
+  es `true`; una nota "no cantada" es silencio total, no solo desafinada).
   Duplica a propósito una línea de fórmula que también está en `note-utils.js`
   (`69 + 12*log2(f/440)`) en vez de depender de ese archivo — mismo criterio que el
   `SAMPLE_MIDI_BYTES` duplicado de la Etapa 1: cada módulo puro queda independiente.
   Mismo patrón de export dual.
 - **`tests/`** — tests de Node (`node --test`, sin instalar nada; ejecutar como
   `node --test tests/*.test.js` desde `App voz/` — `node --test tests/` a secas falla
-  en Node 24 por cómo resuelve el argumento de directorio) para los seis archivos
+  en Node 24 por cómo resuelve el argumento de directorio) para los siete archivos
   puros de arriba, más `tests/fixtures/` con generadores de un MIDI y un WAV de prueba
   (`make-midi-fixture.js`, `make-wav-fixture.js`) y sus salidas ya generadas
   (`sample.mid`, `sample.wav`) — dos notas de 0.5s cada una, usadas tanto en los tests
@@ -230,7 +258,54 @@ romper el metrónomo). Los 27 tests de Node pasan.
   un tempo degenerado podía generar 100.000 pulsos y romper el metrónomo al intentar
   programar `oscillator.start(NaN)`.
 
+## Características implementadas (Etapa 6)
+- **`hasMic()`** (`state.voces.length > 0`) pasa a ser el gate de todo el sistema de
+  juicio del piano roll — antes solo se usaba `isLive` (`state.sourceNode !== null`),
+  que no distinguía si había un micrófono conectado. Esto corrige un bug real: antes
+  de esta etapa, reproducir una canción sin haber activado el micrófono pintaba cada
+  nota gris (`liveNoteColor(null, ...)` siempre resuelve a `'no-signal'`), como si el
+  usuario estuviera fallando sin sentido.
+- **Sin mic activo**: las notas quedan siempre azules, sin importar su estado
+  (`upcoming`/`active`/`past`), y se dibuja una **línea guía** nueva — un trazo fino
+  por el centro vertical de cada rectángulo de nota, mostrando el pitch objetivo del
+  MIDI a lo largo del tiempo, como referencia de "así sonaría perfecto". No hay
+  desintegración ni parada automática en este modo.
+- **Con mic activo**: el coloreado de la Etapa 4 sigue funcionando igual, más dos
+  cosas nuevas:
+  - **Desintegración visual de notas no cantadas**: una nota es "no cantada" si nunca
+    hubo señal de voz clara (mismo filtro de nivel + YIN que ya usaba el color en
+    vivo) durante toda su duración — silencio total, no solo desafinada. Se trackea
+    con `state.noteProgress[i].hadSignal` (booleano, seteado la primera vez que la
+    nota está activa con un `detectedFrequency` no nulo — leído antes de que
+    `accumulateTuning` reemplace el objeto y reescrito después, para que no se pierda
+    en el swap). Una nota no cantada, en vez de la barra bicolor habitual, se
+    desvanece (opacidad 1.0→0.15) y achica (escala 1.0→0.6, centrada) a medida que
+    sigue scrolleando después de cruzar el playhead — la ventana de esa animación es
+    constante (`PLAYHEAD_X / PIXELS_PER_SECOND`, el tiempo que tarda cualquier punto
+    en llegar del playhead al borde izquierdo del canvas a velocidad de scroll
+    constante), así que no hace falta un timer por nota.
+  - **Parada automática por silencio**: si pasan 8 pulsos del MIDI (`state.beats`)
+    seguidos sin señal de voz clara, la reproducción se detiene sola (mismo mecanismo
+    que el fin natural de una canción — `state.frozenTime` congela el piano roll) y
+    aparece un mensaje en `#playbackStatus`. La unidad es pulsos, no notas, para que
+    una nota larga no cuente distinto que varias cortas. **Corrección de la revisión
+    final de la rama** (ver más abajo): el conteo original contaba cualquier pulso
+    silencioso, incluidos los de una introducción o interludio instrumental sin
+    ninguna nota — una intro de 2 compases (8 pulsos a 120 BPM) bastaba para parar la
+    reproducción antes de que el usuario llegara a cantar. Se corrigió reemplazando la
+    función pura `countSilentBeats(beats, sinceTime, uptoTime)` (Tarea 2 original) por
+    `countUnsungBeats(beats, notes, sinceTime, uptoTime)`: solo cuenta pulsos que caen
+    dentro de alguna nota (`t >= note.start && t <= note.start + note.duration`,
+    mismo criterio inclusivo que `noteStatus`), y una racha de 4 pulsos seguidos fuera
+    de cualquier nota borra el conteo parcial acumulado — así una intro o interludio
+    largo no arrastra ni contamina el conteo de antes/después del hueco. Diseño
+    indicado explícitamente por el usuario tras la revisión final.
+
 ## Decisiones técnicas
+- **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
+  vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
+  ramas de gating (colores/desintegración por un lado, parada automática por otro)
+  se desincronicen si el criterio de "hay mic" cambia en el futuro.
 - **Sin dependencias externas** en ningún archivo, ni siquiera en las utilidades de
   test/fixtures — todo Node built-in (`node:test`, `node:assert`, `fs`, `path`).
 - **Forma de nota genérica** `{pitch, start, duration}` (tiempos en segundos, no ticks
@@ -357,7 +432,32 @@ romper el metrónomo). Los 27 tests de Node pasan.
   buscó en los 5 archivos de plan y ninguno menciona este archivo — la doc se
   mantiene al día porque el controlador se acuerda de hacerlo después de cada
   revisión final, no porque el plan se lo pida. Vale la pena convertirlo en un paso
-  explícito de la plantilla de plan, no dejarlo como costumbre.
+  explícito de la plantilla de plan, no dejarlo como costumbre. **Sigue sin resolverse
+  en la Etapa 6** — el plan de la Etapa 6 tampoco lo pidió como paso explícito.
+- **Mensaje de `#playbackStatus` puede quedar pegado tras una parada automática.**
+  (Etapa 6) Si el usuario auto-para por silencio y después carga un WAV inválido
+  (`play()` corta antes de llegar a la línea que limpia el mensaje) o un MIDI nuevo,
+  el texto "Reproducción detenida..." puede seguir viéndose hasta el próximo
+  "Reproducir" exitoso. Se autocorrige solo, pero sería más prolijo limpiarlo también
+  en esos dos casos.
+- **`hasMic()` se evalúa una vez por nota dentro del `forEach` de `renderPianoRoll`**
+  (Etapa 6), en vez de una sola vez por frame como ya hace `isLive`. Barato (mismo
+  cálculo que `isLive`), pero inconsistente — valdría la pena izarlo junto a `isLive`.
+- **Activar el micrófono a mitad de canción desintegra notas ya pasadas
+  retroactivamente.** (Etapa 6) `hadSignal` solo puede marcarse `true` mientras
+  `state.sourceNode` existe, así que las notas que ya pasaron antes de activar el mic
+  quedan con `hadSignal: false` y, apenas `hasMic()` pasa a `true`, se ven como "no
+  cantadas". El spec acepta el cambio de modo en vivo sin reiniciar, y en la práctica
+  el botón de mic queda deshabilitado tras activarse una vez (no hay ida y vuelta),
+  pero el resultado visual para esas notas es engañoso.
+- **El auto-stop de la Etapa 6 no descuenta la latencia del micrófono** (mismo
+  pendiente de la barra bicolor, aplicado ahora también al conteo de pulsos
+  silenciosos) — no se considera bloqueante, la Etapa de calibración es el lugar
+  natural para revisar ambos a la vez.
+- `play()` sigue acumulando líneas en el mismo tramo (limpieza de nodos del
+  metrónomo, reset de progreso, `state.lastSignalTime`, limpieza de
+  `#playbackStatus`, conexión del nuevo nodo) — ya se había anotado esto en la Etapa 5
+  con `state.frozenTime = null;`, y la Etapa 6 agregó dos líneas más al mismo tramo.
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
@@ -376,11 +476,10 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
 4. ~~Color dinámico por nota (azul/verde/rojo/gris) + barra bicolor al terminar cada
    nota + efecto de sonido en la transición a afinado~~ ✅ (Etapa 4, completa)
 5. ~~Mutear el WAV + metrónomo~~ ✅ (Etapa 5, completa)
-6. Desintegración visual de notas no cantadas + parar la reproducción tras varias
-   notas seguidas sin cantar — se apoya en `state.noteProgress` de la Etapa 4 (una
-   nota "no cantada" es una donde nunca hubo señal, no solo desafinada).
+6. ~~Desintegración visual de notas no cantadas + parar la reproducción tras varios
+   pulsos seguidos sin cantar~~ ✅ (Etapa 6, completa)
 7. Calibración de latencia mic↔piano roll (compensaría también el sesgo de latencia
-   anotado arriba, en el % de la barra bicolor)
+   anotado arriba, en el % de la barra bicolor y en el conteo de pulsos silenciosos)
 8. (Opcional) Reproducción audible del MIDI como guía sonora
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
