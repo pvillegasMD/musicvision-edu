@@ -25,6 +25,10 @@ function playbackRateForNote(targetMidi, referenceMidi) {
   return Math.pow(2, (targetMidi - referenceMidi) / 12);
 }
 
+function transposeNotes(notes, semitones) {
+  return notes.map((note) => ({ ...note, pitch: note.pitch + semitones }));
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { frequencyToMidi, midiToNoteName, describePitch, playbackRateForNote };
+  module.exports = { frequencyToMidi, midiToNoteName, describePitch, playbackRateForNote, transposeNotes };
 }
