@@ -1,21 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { countSilentBeats } = require('../silence-guard.js');
+const { countUnsungBeats } = require('../silence-guard.js');
 
-test('countSilentBeats counts beats strictly after sinceTime and up to and including uptoTime', () => {
+test('countUnsungBeats counts only beats covered by a note, ignoring gap beats entirely', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
   const beats = [0, 0.5, 1, 1.5, 2];
-  assert.equal(countSilentBeats(beats, 0.5, 2), 3);
+  assert.equal(countUnsungBeats(beats, notes, -1, 2), 3);
 });
 
-test('countSilentBeats excludes a beat exactly at sinceTime and includes one exactly at uptoTime', () => {
-  const beats = [0, 1, 2];
-  assert.equal(countSilentBeats(beats, 1, 2), 1);
+test('countUnsungBeats resets the count after 4 consecutive beats not covered by any note', () => {
+  const notes = [
+    { pitch: 60, start: 0, duration: 1.4 },
+    { pitch: 62, start: 5, duration: 1 }
+  ];
+  const beats = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+  assert.equal(countUnsungBeats(beats, notes, -1, 5), 1);
 });
 
-test('countSilentBeats returns 0 when no beats fall in the range', () => {
-  assert.equal(countSilentBeats([0, 0.5], 1, 2), 0);
+test('countUnsungBeats does not reset the count for a gap shorter than 4 beats', () => {
+  const notes = [
+    { pitch: 60, start: 0, duration: 0.4 },
+    { pitch: 62, start: 2, duration: 0.4 }
+  ];
+  const beats = [0, 0.5, 1, 1.5, 2];
+  assert.equal(countUnsungBeats(beats, notes, -1, 2), 2);
 });
 
-test('countSilentBeats returns 0 for an empty beats array', () => {
-  assert.equal(countSilentBeats([], 0, 10), 0);
+test('countUnsungBeats returns 0 when there are no notes at all', () => {
+  assert.equal(countUnsungBeats([0, 0.5, 1], [], -1, 1), 0);
 });

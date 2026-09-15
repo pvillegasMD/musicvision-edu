@@ -409,7 +409,7 @@
         state.lastSignalTime = currentTime;
       }
 
-      if (hasMic() && state.sourceNode && countSilentBeats(state.beats, state.lastSignalTime, currentTime) >= SILENCE_STOP_BEATS) {
+      if (hasMic() && state.sourceNode && countUnsungBeats(state.beats, state.notes, state.lastSignalTime, currentTime) >= SILENCE_STOP_BEATS) {
         stopPlayback('Reproducción detenida: no se detectó canto durante varios pulsos.');
       }
 
