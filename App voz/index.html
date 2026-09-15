@@ -65,8 +65,15 @@
       frozenTime: null,
       beats: [],
       metronomeNodes: [],
-      lastSignalTime: 0
+      lastSignalTime: 0,
+      pitchHistory: [],
+      latencyOffsetSec: 0
     };
+
+    const storedLatencyOffset = parseFloat(localStorage.getItem('appVozLatencyOffsetSec'));
+    if (Number.isFinite(storedLatencyOffset)) {
+      state.latencyOffsetSec = storedLatencyOffset;
+    }
 
     state.wavGainNode = state.audioContext.createGain();
     state.wavGainNode.connect(state.audioContext.destination);
@@ -83,6 +90,9 @@
     const DESINTEGRATION_MIN_OPACITY = 0.15;
     const DESINTEGRATION_MIN_SCALE = 0.6;
     const SILENCE_STOP_BEATS = 8;
+    const CANVAS_WIDTH = document.getElementById('pianoRoll').width;
+    const MAX_PITCH_HISTORY_SEC = (PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND;
+    const PITCH_LINE_GAP_SEC = 0.15;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -119,6 +129,7 @@
       state.lastActiveNoteIndex = null;
       state.lastActiveNoteColor = null;
       state.frozenTime = null;
+      state.pitchHistory = [];
     }
 
     function currentPlaybackTime() {
@@ -398,6 +409,7 @@
       state.lastFrameTime = now;
 
       const currentTime = currentPlaybackTime();
+      const judgmentTime = currentTime - state.latencyOffsetSec;
       let detectedFrequency = null;
       if (state.voces[0]) {
         const { peak } = state.voces[0].getLevel();
@@ -407,14 +419,19 @@
       }
 
       if (detectedFrequency !== null) {
-        state.lastSignalTime = currentTime;
+        state.lastSignalTime = judgmentTime;
       }
 
-      if (hasMic() && state.sourceNode && countUnsungBeats(state.beats, state.notes, state.lastSignalTime, currentTime) >= SILENCE_STOP_BEATS) {
+      if (hasMic() && state.sourceNode && countUnsungBeats(state.beats, state.notes, state.lastSignalTime, judgmentTime) >= SILENCE_STOP_BEATS) {
         stopPlayback('Reproducción detenida: no se detectó canto durante varios pulsos.');
       }
 
-      updateNoteProgress(currentTime, detectedFrequency, deltaSeconds);
+      if (hasMic() && state.sourceNode && detectedFrequency !== null) {
+        state.pitchHistory.push({ time: judgmentTime, pitch: frequencyToMidi(detectedFrequency) });
+      }
+      state.pitchHistory = state.pitchHistory.filter((p) => p.time > currentTime - MAX_PITCH_HISTORY_SEC);
+
+      updateNoteProgress(judgmentTime, detectedFrequency, deltaSeconds);
       renderPianoRoll();
 
       requestAnimationFrame(mainLoop);
