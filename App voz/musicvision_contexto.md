@@ -419,6 +419,41 @@ sin arreglos de revisión final, la rama quedó limpia. Los 47 tests de Node pas
   repartidos (si el pitch-shift se nota artificial en notas muy alejadas de la
   referencia) queda como extensión aditiva futura, no un rediseño.
 
+## Características implementadas (post-roadmap: botón Detener + cambiador de octava)
+El roadmap original de 8 etapas se completó y mergeó (ver "Próximos pasos" más abajo).
+Estas dos características se agregaron después, a pedido del usuario, ya con la app en
+uso real:
+- **Botón "Detener"** junto a "Reproducir": llama a `stopPlayback(reason)` — la misma
+  función que ya usaba el auto-stop por silencio (Etapa 6) — así que corta la pista
+  WAV, el metrónomo y el instrumento MIDI a la vez, sin importar en qué momento se
+  presione. Reutiliza código ya probado en vez de duplicar lógica de limpieza.
+- **Cambiador de octava** (`docs/superpowers/specs/2026-09-15-app-voz-cambiador-octava-design.md`,
+  `docs/superpowers/plans/2026-09-15-app-voz-cambiador-octava.md`): cuando canta una
+  voz masculina el MIDI debe bajar una octava, y si es bajo o barítono, dos. Se agregó
+  un `<select id="voiceTypeSelect">` con tres opciones (Original=0, Voz masculina=-12,
+  Bajo/Barítono=-24 semitonos) y una función pura nueva `transposeNotes(notes,
+  semitones)` en `note-utils.js`.
+  - `state.originalNotes` guarda el MIDI tal cual lo parsea `parseMidi` (sin
+    transportar); `state.notes` — que ya consumían el piano roll, la comparación en
+    vivo con el micrófono, y el playback del instrumento — pasa a ser un valor
+    **derivado**: `transposeNotes(state.originalNotes, semitonosElegidos)`. Como los
+    tres consumidores ya leían de `state.notes`, transportar en ese único punto
+    resolvió las tres cosas (visual, evaluación, audio) sin tocar nada más.
+  - Cambiar el selector con un MIDI ya cargado recalcula `state.notes` al instante
+    (sin volver a subir el archivo), resetea el progreso de notas, y re-dibuja.
+  - El selector se deshabilita durante la reproducción activa (mismo patrón que
+    `#calibrateBtn`) y se re-habilita por las 3 vías que terminan una reproducción:
+    fin natural del WAV (`node.onended`), el botón "Detener", y el auto-stop por
+    silencio — las dos últimas comparten la misma función `stopPlayback()`, así que
+    un solo `disabled = false` ahí cubre ambas.
+  - **Hallazgo de la revisión final:** una transposición uniforme de todas las notas
+    deja el piano roll visualmente idéntico (el rango vertical se calcula a partir de
+    las mismas notas, así que se desplaza junto con ellas) — sin ninguna señal en
+    pantalla, el usuario no tenía forma de saber si el selector realmente hizo algo.
+    Se corrigió agregando el tipo de voz elegido y el rango de notas resultante (en
+    nombre de nota, ej. "C3–A4") al texto de `#midiStatus`, tanto al cargar el MIDI
+    como al cambiar el selector.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -665,6 +700,10 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
    original del brief, retomada)~~ ✅ (Etapa 7, completa)
 8. ~~Reproducción audible del MIDI como guía sonora~~ ✅ (Etapa 8, completa — el
    roadmap original ya no tiene etapas pendientes)
+
+Post-roadmap, ya con la app en uso real, se agregaron dos características más a
+pedido del usuario: ~~botón "Detener"~~ ✅ y ~~cambiador de octava (voz
+masculina/bajo/barítono)~~ ✅ — ver la sección de características arriba.
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
 externa (modelado como un array de objetos "Voz", uno por fuente de audio), un
