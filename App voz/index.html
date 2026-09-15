@@ -93,6 +93,7 @@
     const CANVAS_WIDTH = document.getElementById('pianoRoll').width;
     const MAX_PITCH_HISTORY_SEC = (PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND;
     const PITCH_LINE_GAP_SEC = 0.15;
+    const COLOR_PITCH_LINE = '#f5d90a';
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -216,6 +217,23 @@
       ctx.moveTo(PLAYHEAD_X, 0);
       ctx.lineTo(PLAYHEAD_X, canvas.height);
       ctx.stroke();
+
+      if (state.pitchHistory.length > 0) {
+        ctx.strokeStyle = COLOR_PITCH_LINE;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        state.pitchHistory.forEach((point, i) => {
+          const x = pitchPointX(point.time, currentTime, PIXELS_PER_SECOND, PLAYHEAD_X);
+          const y = pitchToY(point.pitch, minPitch, maxPitch, canvas.height);
+          if (i === 0 || shouldBreakLine(state.pitchHistory[i - 1].time, point.time, PITCH_LINE_GAP_SEC)) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
     }
 
     function playSuccessBlip(audioContext) {
