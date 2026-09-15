@@ -26,6 +26,14 @@ function desintegrationProgress(currentTime, noteEndTime, scrollOutDurationSec) 
   return Math.max(0, Math.min(1, elapsed / scrollOutDurationSec));
 }
 
+function pitchPointX(pointTime, currentTime, pixelsPerSecond, playheadX) {
+  return playheadX + (pointTime - currentTime) * pixelsPerSecond;
+}
+
+function shouldBreakLine(prevTime, nextTime, gapThresholdSec = 0.15) {
+  return (nextTime - prevTime) > gapThresholdSec;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pitchRange, pitchToY, computeNoteRect, desintegrationProgress };
+  module.exports = { pitchRange, pitchToY, computeNoteRect, desintegrationProgress, pitchPointX, shouldBreakLine };
 }

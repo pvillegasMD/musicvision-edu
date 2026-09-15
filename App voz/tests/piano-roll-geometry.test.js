@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { pitchRange, pitchToY, computeNoteRect, desintegrationProgress } = require('../piano-roll-geometry.js');
+const { pitchRange, pitchToY, computeNoteRect, desintegrationProgress, pitchPointX, shouldBreakLine } = require('../piano-roll-geometry.js');
 
 test('pitchRange pads the observed pitch range by 2 semitones', () => {
   const r = pitchRange([{ pitch: 60, start: 0, duration: 1 }, { pitch: 67, start: 1, duration: 1 }]);
@@ -48,4 +48,19 @@ test('desintegrationProgress increases linearly across the scroll-out window and
 test('desintegrationProgress returns 1 immediately when scrollOutDurationSec is not positive', () => {
   assert.equal(desintegrationProgress(2.1, 2, 0), 1);
   assert.equal(desintegrationProgress(2.1, 2, -1), 1);
+});
+
+test('pitchPointX places a point using the same time-to-x mapping as computeNoteRect', () => {
+  assert.equal(pitchPointX(1, 0, 100, 50), 150);
+  assert.equal(pitchPointX(0, 1, 100, 50), -50);
+});
+
+test('shouldBreakLine is false within the default 150ms threshold, true beyond it', () => {
+  assert.equal(shouldBreakLine(1, 1.1), false);
+  assert.equal(shouldBreakLine(1, 1.2), true);
+});
+
+test('shouldBreakLine respects a custom gap threshold', () => {
+  assert.equal(shouldBreakLine(1, 1.3, 0.5), false);
+  assert.equal(shouldBreakLine(1, 1.6, 0.5), true);
 });
