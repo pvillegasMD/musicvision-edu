@@ -76,6 +76,9 @@
     const COLOR_IN_TUNE = '#3ecf6e';
     const COLOR_OUT_OF_TUNE = '#e05a4e';
     const COLOR_NO_SIGNAL = '#6b7280';
+    const SCROLL_OUT_DURATION_SEC = PLAYHEAD_X / PIXELS_PER_SECOND;
+    const DESINTEGRATION_MIN_OPACITY = 0.15;
+    const DESINTEGRATION_MIN_SCALE = 0.6;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -169,6 +172,20 @@
         } else if (status !== 'past') {
           ctx.fillStyle = COLOR_UPCOMING;
           ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        } else if (!noteWasSung(state.noteProgress[i])) {
+          const noteEndTime = note.start + note.duration;
+          const progress = desintegrationProgress(currentTime, noteEndTime, SCROLL_OUT_DURATION_SEC);
+          const opacity = 1 - progress * (1 - DESINTEGRATION_MIN_OPACITY);
+          const scale = 1 - progress * (1 - DESINTEGRATION_MIN_SCALE);
+          const scaledWidth = rect.width * scale;
+          const scaledHeight = rect.height * scale;
+          const scaledX = rect.x + (rect.width - scaledWidth) / 2;
+          const scaledY = rect.y + (rect.height - scaledHeight) / 2;
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.fillStyle = COLOR_OUT_OF_TUNE;
+          ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
+          ctx.restore();
         } else {
           const ratio = tuningRatio(state.noteProgress[i]);
           const greenWidth = rect.width * ratio;
