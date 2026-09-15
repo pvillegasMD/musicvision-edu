@@ -26,6 +26,7 @@
     <button id="playBtn">Reproducir</button>
     <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
     <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
+    <label><input type="checkbox" id="playMidiCheckbox"> Reproducir MIDI</label>
   </div>
   <div id="status">
     <div id="midiStatus">Sin MIDI cargado.</div>
@@ -75,7 +76,8 @@
       latencyOffsetSec: 0,
       calibration: null,
       instrumentSample: null,
-      instrumentReferenceMidi: 60
+      instrumentReferenceMidi: 60,
+      instrumentNodes: []
     };
 
     let storedLatencyOffset = NaN;
@@ -112,6 +114,7 @@
     const CALIBRATION_INTERVAL_SEC = 1.0;
     const CALIBRATION_WINDOW_SEC = 0.9;
     const CALIBRATION_DEAD_ZONE_SEC = 0.05;
+    const INSTRUMENT_FADE_SEC = 0.02;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -283,6 +286,22 @@
       return osc;
     }
 
+    function playInstrumentNote(audioContext, buffer, playbackRate, when, durationSec) {
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = playbackRate;
+      const gain = audioContext.createGain();
+      source.connect(gain);
+      gain.connect(audioContext.destination);
+      const stopTime = when + durationSec;
+      const fadeStart = Math.max(when, stopTime - INSTRUMENT_FADE_SEC);
+      gain.gain.setValueAtTime(1, fadeStart);
+      gain.gain.linearRampToValueAtTime(0.0001, stopTime);
+      source.start(when);
+      source.stop(stopTime + 0.01);
+      return source;
+    }
+
     renderPianoRoll();
     requestAnimationFrame(mainLoop);
 
@@ -365,6 +384,10 @@
         try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
       });
       state.metronomeNodes = [];
+      state.instrumentNodes.forEach((node) => {
+        try { node.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.instrumentNodes = [];
       state.frozenTime = null;
       resetNoteProgress();
       state.lastSignalTime = 0;
@@ -387,6 +410,19 @@
           state.metronomeNodes.push(osc);
         });
       }
+      if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
+        state.notes.forEach((note) => {
+          const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
+          const instrumentNode = playInstrumentNote(
+            state.audioContext,
+            state.instrumentSample,
+            rate,
+            state.playStartTime + note.start,
+            note.duration
+          );
+          state.instrumentNodes.push(instrumentNode);
+        });
+      }
     }
 
     function stopPlayback(reason) {
@@ -400,6 +436,10 @@
         try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
       });
       state.metronomeNodes = [];
+      state.instrumentNodes.forEach((node) => {
+        try { node.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.instrumentNodes = [];
       document.getElementById('playbackStatus').textContent = reason;
     }
 
