@@ -121,6 +121,10 @@
       return state.frozenTime !== null ? state.frozenTime : 0;
     }
 
+    function hasMic() {
+      return state.voces.length > 0;
+    }
+
     function renderPianoRoll() {
       const canvas = document.getElementById('pianoRoll');
       const ctx = canvas.getContext('2d');
@@ -141,6 +145,18 @@
 
       state.notes.forEach((note, i) => {
         const rect = computeNoteRect(note, view);
+
+        if (!hasMic()) {
+          ctx.fillStyle = COLOR_UPCOMING;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          ctx.strokeStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(rect.x, rect.y + rect.height / 2);
+          ctx.lineTo(rect.x + rect.width, rect.y + rect.height / 2);
+          ctx.stroke();
+          return;
+        }
+
         const status = noteStatus(note, currentTime);
 
         if (status === 'active' && isLive) {
