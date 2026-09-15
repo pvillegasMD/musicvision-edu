@@ -20,6 +20,12 @@ function computeNoteRect(note, view) {
   return { x, y, width, height: rowHeight };
 }
 
+function desintegrationProgress(currentTime, noteEndTime, scrollOutDurationSec) {
+  if (scrollOutDurationSec <= 0) return 1;
+  const elapsed = currentTime - noteEndTime;
+  return Math.max(0, Math.min(1, elapsed / scrollOutDurationSec));
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pitchRange, pitchToY, computeNoteRect };
+  module.exports = { pitchRange, pitchToY, computeNoteRect, desintegrationProgress };
 }
