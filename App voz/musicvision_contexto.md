@@ -34,16 +34,24 @@ navegador. Sigue sin build, sin npm, sin librerías externas — abre con doble 
   spec de diseño de la Etapa 6.
 - `docs/superpowers/plans/2026-09-14-app-voz-etapa6-desintegracion-autostop.md` — plan
   de implementación de la Etapa 6.
+- `docs/superpowers/specs/2026-09-15-app-voz-etapa7-calibracion-linea-canto-design.md` —
+  spec de diseño de la Etapa 7.
+- `docs/superpowers/plans/2026-09-15-app-voz-etapa7-calibracion-linea-canto.md` — plan
+  de implementación de la Etapa 7.
 
 ## Estado actual (2026-09-15)
-**Etapas 1 a 6 completas e implementadas:** reproductor + piano roll estático,
+**Etapas 1 a 7 completas e implementadas:** reproductor + piano roll estático,
 captura de micrófono con fader y medidor de nivel, detección de pitch en tiempo real,
 coloreado en vivo del piano roll según afinación con resumen bicolor y sonido de
 éxito, mutear la pista WAV (en vivo, sin reiniciar) y un metrónomo que clickea en cada
-pulso del MIDI, y ahora además: las notas nunca cantadas se desintegran visualmente en
-vez de quedar rojas, la reproducción se detiene sola si el usuario deja de cantar por
-varios pulsos seguidos, y reproducir sin micrófono activo ya no pinta las notas grises
-sino que muestra una línea guía sobre el pitch objetivo.
+pulso del MIDI, las notas nunca cantadas se desintegran visualmente en vez de quedar
+rojas, la reproducción se detiene sola si el usuario deja de cantar por varios pulsos
+seguidos, reproducir sin micrófono activo ya no pinta las notas grises sino que
+muestra una línea guía sobre el pitch objetivo, y ahora además: una línea de canto en
+tiempo real (la idea del brief original, nunca construida hasta ahora) se dibuja sobre
+el piano roll mientras el usuario canta, y una calibración interactiva de latencia
+("Calibrar latencia", decir "Ta" en 4 clicks) corrige tanto esa línea como el color de
+las notas y el auto-stop.
 
 Vive en una rama de git separada, **no mergeada todavía**: rama `worktree-app-voz-etapa1`
 (worktree en `.claude/worktrees/app-voz-etapa1`), creada sobre `fix/filenames-in-context-docs`.
@@ -75,17 +83,27 @@ nota; una intro de 2 compases bastaba para parar la reproducción antes de que e
 usuario llegara a cantar. Se corrigió reemplazando countSilentBeats por
 countUnsungBeats(beats, notes, sinceTime, uptoTime), que solo cuenta pulsos que caen
 dentro de una nota y olvida la racha tras 4 pulsos seguidos en un hueco — diseño
-indicado explícitamente por el usuario). Los 35 tests de Node pasan.
+indicado explícitamente por el usuario). Etapa 7: 5 commits (funciones puras
+computeCalibrationOffset/latency-calibration.js, pitchPointX/shouldBreakLine,
+judgmentTime + historial de pitch, dibujo de la línea, calibración interactiva) + 1
+arreglo de la revisión final de toda la rama (localStorage sin try/catch podía tirar
+abajo toda la app si el navegador lo bloqueaba; calibrar y reproducir no eran
+mutuamente excluyentes; y el umbral de detección de la calibración —
+detectedFrequency !== null en vez de peak > 0.02, un bug mío en el propio plan — podía
+sesgar la medición o confundir el click del metrónomo con la "Ta" del usuario, resuelto
+agregando una zona muerta de 50ms y usando el mismo umbral de nivel que el resto de la
+app). Los 44 tests de Node pasan.
 
 ## Archivos
 - **`index.html`** — UI (inputs de MIDI/WAV, botón Reproducir, checkbox de mutear
   pista, checkbox de metrónomo, controles de micrófono — botón, fader de ganancia,
-  medidor de nivel, lectura de nota detectada —, mensaje de estado de reproducción,
-  `<canvas id="pianoRoll">`), carga de archivos, reproducción con Web Audio API,
-  captura de micrófono, detección de pitch. Un solo `requestAnimationFrame` loop
-  (`mainLoop`) maneja todo — piano roll, medidor, pitch, y ahora también el chequeo de
-  parada automática — corriendo siempre desde que carga la página. Todo el JS de la
-  app vive acá, inline (~440 líneas a esta altura).
+  medidor de nivel, lectura de nota detectada —, botón "Calibrar latencia" + estado de
+  latencia, mensaje de estado de reproducción, `<canvas id="pianoRoll">`), carga de
+  archivos, reproducción con Web Audio API, captura de micrófono, detección de pitch.
+  Un solo `requestAnimationFrame` loop (`mainLoop`) maneja todo — piano roll, medidor,
+  pitch, el chequeo de parada automática, el historial de pitch para la línea de
+  canto, y los intentos de calibración — corriendo siempre desde que carga la página.
+  Todo el JS de la app vive acá, inline (~500 líneas a esta altura).
 - **`midi-parser.js`** — parser MIDI binario puro (sin DOM), `DataView` a mano, sin
   librerías. Expone `parseMidi(buffer) -> {notes: [{pitch, start, duration}], durationSec, beats}`
   (tiempos en segundos; `beats` es un array con el instante de cada pulso del MIDI,
@@ -95,8 +113,18 @@ indicado explícitamente por el usuario). Los 35 tests de Node pasan.
   `pitchToY(pitch, minPitch, maxPitch, canvasHeight)`, `computeNoteRect(note, view)`,
   `desintegrationProgress(currentTime, noteEndTime, scrollOutDurationSec) -> 0..1`
   (Etapa 6 — progreso de la animación de desvanecer/achicar una nota no cantada, según
-  cuánto tiempo pasó desde que terminó de cruzar el playhead). Mismo patrón de export
+  cuánto tiempo pasó desde que terminó de cruzar el playhead),
+  `pitchPointX(pointTime, currentTime, pixelsPerSecond, playheadX) -> number` (Etapa 7
+  — mismo mapeo tiempo→x que `computeNoteRect`, aplicado a un punto del historial de
+  pitch), `shouldBreakLine(prevTime, nextTime, gapThresholdSec=0.15) -> boolean`
+  (Etapa 7 — si dos puntos consecutivos de la línea de canto están separados por más
+  de ese umbral, se corta el trazo en vez de conectarlos). Mismo patrón de export
   dual.
+- **`latency-calibration.js`** (Etapa 7) — lógica pura de la calibración:
+  `computeCalibrationOffset(deltas, minValid=2, minDelta=0, maxDelta=0.5) -> number|null`.
+  Filtra intentos nulos (sin detección) o fuera de rango, y devuelve la mediana de los
+  que quedan — o `null` si sobreviven menos de `minValid`. No sabe nada de audio ni de
+  DOM, solo recibe números. Mismo patrón de export dual.
 - **`silence-guard.js`** (Etapa 6) — lógica pura de la parada automática:
   `countUnsungBeats(beats, notes, sinceTime, uptoTime) -> number`. Cuenta solo los
   pulsos del MIDI que caen dentro de alguna nota (donde había algo para cantar) sin
@@ -131,7 +159,7 @@ indicado explícitamente por el usuario). Los 35 tests de Node pasan.
   Mismo patrón de export dual.
 - **`tests/`** — tests de Node (`node --test`, sin instalar nada; ejecutar como
   `node --test tests/*.test.js` desde `App voz/` — `node --test tests/` a secas falla
-  en Node 24 por cómo resuelve el argumento de directorio) para los siete archivos
+  en Node 24 por cómo resuelve el argumento de directorio) para los ocho archivos
   puros de arriba, más `tests/fixtures/` con generadores de un MIDI y un WAV de prueba
   (`make-midi-fixture.js`, `make-wav-fixture.js`) y sus salidas ya generadas
   (`sample.mid`, `sample.wav`) — dos notas de 0.5s cada una, usadas tanto en los tests
@@ -301,6 +329,54 @@ indicado explícitamente por el usuario). Los 35 tests de Node pasan.
     largo no arrastra ni contamina el conteo de antes/después del hueco. Diseño
     indicado explícitamente por el usuario tras la revisión final.
 
+## Características implementadas (Etapa 7)
+- **Línea de canto en tiempo real**: retoma una idea del brief original del proyecto
+  (`contexto-proyecto-piano-roll-canto.md`) que se había dejado de lado durante el
+  diseño de la Etapa 4 en favor del coloreado de rectángulos. `state.pitchHistory`
+  (array `{time, pitch}`, `pitch` en MIDI fraccional vía `frequencyToMidi`) acumula un
+  punto por frame mientras hay mic activo y reproducción en curso; `renderPianoRoll`
+  la dibuja como una polilínea amarilla (`COLOR_PITCH_LINE`) **encima** de los
+  rectángulos de nota, no en su lugar — ambos conviven. Un silencio real (más de
+  150ms entre dos puntos consecutivos, `shouldBreakLine`) corta el trazo en vez de
+  conectarlo. Los puntos que ya scrollearon fuera de pantalla se descartan cada frame.
+  Se reinicia junto con `state.noteProgress` (MIDI nuevo, cada "Reproducir").
+- **Calibración de latencia interactiva**: botón "Calibrar latencia" (habilitado solo
+  con mic activo) hace sonar 4 clicks (reusando el sonido del metrónomo), uno por
+  segundo; el usuario dice "Ta" en cada uno. `mainLoop` mide, para cada click, el
+  primer instante dentro de una ventana de 900ms en que el nivel supera el mismo
+  umbral que ya usa el resto de la detección (`peak > 0.02`). Con al menos 2 de 4
+  intentos válidos, `computeCalibrationOffset` calcula la mediana como
+  `state.latencyOffsetSec`, persistido en `localStorage`
+  (`appVozLatencyOffsetSec`) para no tener que recalibrar en cada sesión.
+- **`judgmentTime = currentTime - state.latencyOffsetSec`**, calculado una vez por
+  frame en `mainLoop`. Es la única corrección que introduce esta etapa: se usa en
+  vez de `currentTime` SOLO para decidir a qué nota/pulso le corresponde una lectura
+  del micrófono (color en vivo, `hadSignal`, el auto-stop de la Etapa 6, y el
+  timestamp de cada punto de la línea de canto). El scroll visual de los rectángulos,
+  el playhead, y el audio del WAV siguen usando el `currentTime` real sin ningún
+  offset — el WAV nunca está atrasado, solo la lectura del mic lo está, y por eso es
+  la única que se corrige. Sin calibrar (`latencyOffsetSec = 0`), todo se comporta
+  exactamente igual que antes de esta etapa.
+- **Corrección de la revisión final de la rama** (cuatro hallazgos, un solo commit):
+  (1) `localStorage.getItem`/`setItem` no tenían try/catch — si el navegador lo
+  bloqueaba (Safari con `file://`, configuración de privacidad estricta), el script
+  entero se cortaba al cargar la página, dejando la app completamente muerta; ahora
+  ambos están protegidos, y `finishCalibration()` actualiza la pantalla ANTES de
+  intentar persistir, para que el offset se vea aplicado aunque `setItem` falle. (2)
+  Calibrar y reproducir no eran mutuamente excluyentes — apretar "Reproducir" durante
+  una calibración en curso dejaba que las "Ta" del usuario contaminaran
+  `state.pitchHistory`/`state.noteProgress` de la práctica real; ahora `play()`
+  cancela cualquier calibración en curso y el botón de calibrar se ignora si ya hay
+  una canción sonando. (3-4) El umbral de validación de un intento de calibración
+  usaba `detectedFrequency !== null` en vez de `peak > 0.02` (un bug mío, del propio
+  plan — el spec decía `peak` pero el código que escribí en el plan usaba el
+  resultado de YIN, más estricto porque rechaza el ataque percusivo de la "Ta" y
+  espera a que la vocal se estabilice, sesgando la medición hacia arriba), y sin una
+  "zona muerta" después de cada click, el propio click del metrónomo (1000Hz, 40ms,
+  por los parlantes) podía colarse por el micrófono y contarse como si fuera la "Ta"
+  del usuario. Se corrigió gateando en `peak > 0.02` y agregando
+  `CALIBRATION_DEAD_ZONE_SEC = 0.05` antes de que cualquier detección cuente.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -410,13 +486,11 @@ indicado explícitamente por el usuario). Los 35 tests de Node pasan.
   segundos, que se le atribuye entero a la nota activa en ese instante, mientras las
   notas salteadas en el medio nunca acumulan nada y quedan rojas. Un
   `Math.min(delta, 0.1)` acotaría el error. Prioridad baja para una app de uso propio.
-- **El % de afinación de la barra bicolor no descuenta la latencia del micrófono.**
-  El `AnalyserNode` entrega ~43ms de audio ya pasado (buffer de 2048 muestras a
-  44100Hz) más la latencia del dispositivo — cada muestra "afinada" se atribuye al
-  instante de reproducción ~40-60ms *después* de que el usuario realmente cantó esa
-  nota. No afecta mayor cosa al color en vivo, pero sesga el % final que se muestra
-  como resultado. La Etapa de calibración de latencia es el lugar natural para
-  corregir esto — por ahora, el número que se ve no es 100% objetivo.
+- ~~**El % de afinación de la barra bicolor no descuenta la latencia del
+  micrófono.**~~ **Resuelto en la Etapa 7** vía `judgmentTime` — con la latencia
+  calibrada, el % ya no está sesgado. Sigue habiendo margen de error en cuánto se
+  calibra realmente (ver pendiente sobre el propio proceso de calibración más abajo),
+  pero el mecanismo de corrección ya existe.
 - **`state.durationSec` (del MIDI) vs. `audioBuffer.duration` (del WAV) — el mismo
   pendiente de arriba, pero ahora con un síntoma audible.** Si el WAV es más corto
   que el MIDI, el piano roll se congela (`frozenTime`) mientras el metrónomo sigue
@@ -450,10 +524,51 @@ indicado explícitamente por el usuario). Los 35 tests de Node pasan.
   cantadas". El spec acepta el cambio de modo en vivo sin reiniciar, y en la práctica
   el botón de mic queda deshabilitado tras activarse una vez (no hay ida y vuelta),
   pero el resultado visual para esas notas es engañoso.
-- **El auto-stop de la Etapa 6 no descuenta la latencia del micrófono** (mismo
-  pendiente de la barra bicolor, aplicado ahora también al conteo de pulsos
-  silenciosos) — no se considera bloqueante, la Etapa de calibración es el lugar
-  natural para revisar ambos a la vez.
+- ~~**El auto-stop de la Etapa 6 no descuenta la latencia del micrófono**~~
+  **Resuelto en la Etapa 7** — el auto-stop ahora compara contra `judgmentTime`, igual
+  que el color en vivo.
+- **La calibración mide latencia end-to-end, sin distinguir sus componentes.** (Etapa
+  7) No separa cuánto es del micrófono, cuánto del altavoz/auriculares, y cuánto es
+  tiempo de reacción humano al escuchar el click y decir "Ta". Para una app de
+  práctica personal esto es aceptable (lo que importa es que la línea/los colores
+  queden alineados con cómo ESE usuario, en ESE dispositivo, canta realmente), pero no
+  es una medición científica del retraso del hardware en sí.
+- **`MAX_PITCH_HISTORY_SEC` retiene ~8× más puntos de los que pueden llegar a verse.**
+  (Etapa 7) Se calculó como `(PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND` (6.8s),
+  pero como los puntos del historial siempre están en el pasado, nunca aparecen a la
+  derecha del playhead y scrollean fuera de pantalla en `PLAYHEAD_X / PIXELS_PER_SECOND`
+  (0.8s). El array recorta de más, generando churn de GC innecesario en el loop de
+  render (barato, pero evitable) — encontrado en la revisión final de la rama, no
+  bloqueante.
+- **El offset persistido en `localStorage` no se valida contra el rango que la propia
+  calibración ya respeta.** (Etapa 7) `computeCalibrationOffset` nunca deja pasar un
+  valor fuera de `[0, 0.5]`, pero el valor cargado al iniciar solo pasa por
+  `Number.isFinite` — un valor editado a mano en `localStorage` (o corrupto) se
+  aplicaría igual. Riesgo bajo (nadie edita `localStorage` de esta app a mano en el
+  uso normal), pero sería más consistente reusar esos mismos límites al cargar.
+- **Nuevas cadenas en voseo agregadas en la Etapa 7** (`'Calibrando... decí "Ta"...'`,
+  `'... Intentá de nuevo.'`) — la app ya tenía una cadena en voseo desde la Etapa 2
+  (`'Revisá los permisos...'`), así que esto es consistente con lo existente, pero
+  sigue en conflicto con la preferencia explícita del usuario por español neutro/
+  mexicano. Candidato para una pasada de limpieza de todo el archivo, no solo lo nuevo
+  de esta etapa.
+- **Parpadeo gris breve al empezar cada nota, con mic activo.** (Etapa 7)
+  `state.activeNoteIndex` ahora se calcula con `judgmentTime`, pero `renderPianoRoll`
+  sigue eligiendo la nota "activa" a dibujar con `noteStatus(nota, currentTime)` (el
+  reloj real, a propósito — el scroll visual no debe correrse). Durante los primeros
+  `latencyOffsetSec` segundos de cada nota, el rectángulo recién activo tiene
+  `i !== state.activeNoteIndex` todavía y cae en gris un instante, aunque el usuario
+  ya esté cantando afinado. Con valores típicos de latencia (50-150ms) esto son unos
+  pocos píxeles a 150px/s, probablemente imperceptible — anotado como consecuencia
+  emergente del diseño (correcto según el spec), no como bug a resolver ahora.
+- **La línea de canto no tiene límites de pitch — una nota muy desafinada (por
+  ejemplo, una octava de más) puede dibujarse fuera del canvas.** (Etapa 7)
+  `pitchToY()` no recorta su salida; `pitchRange()` solo acolchona ±2 semitonos
+  alrededor de las notas del MIDI, así que un canto muy fuera de rango hace que la
+  línea "desaparezca" en vez de mostrar claramente que el usuario está muy
+  desafinado — visualmente ambiguo con "el mic está apagado". Se podría fijar la
+  línea al borde del canvas en vez de dejarla salir. Pendiente de baja prioridad,
+  función preexistente (`pitchToY`), afectada solo indirectamente por esta etapa.
 - `play()` sigue acumulando líneas en el mismo tramo (limpieza de nodos del
   metrónomo, reset de progreso, `state.lastSignalTime`, limpieza de
   `#playbackStatus`, conexión del nuevo nodo) — ya se había anotado esto en la Etapa 5
@@ -478,8 +593,8 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
 5. ~~Mutear el WAV + metrónomo~~ ✅ (Etapa 5, completa)
 6. ~~Desintegración visual de notas no cantadas + parar la reproducción tras varios
    pulsos seguidos sin cantar~~ ✅ (Etapa 6, completa)
-7. Calibración de latencia mic↔piano roll (compensaría también el sesgo de latencia
-   anotado arriba, en el % de la barra bicolor y en el conteo de pulsos silenciosos)
+7. ~~Calibración de latencia mic↔piano roll + línea de canto en tiempo real (idea
+   original del brief, retomada)~~ ✅ (Etapa 7, completa)
 8. (Opcional) Reproducción audible del MIDI como guía sonora
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
