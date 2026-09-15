@@ -106,7 +106,7 @@
     }
 
     function resetNoteProgress() {
-      state.noteProgress = state.notes.map(() => ({ timeInTune: 0, timeTotal: 0 }));
+      state.noteProgress = state.notes.map(() => ({ timeInTune: 0, timeTotal: 0, hadSignal: false }));
       state.activeNoteIndex = null;
       state.activeNoteColor = null;
       state.lastActiveNoteIndex = null;
@@ -315,10 +315,12 @@
           if (noteStatus(note, currentTime) !== 'active') return;
           activeIndex = i;
           activeColor = liveNoteColor(detectedFrequency, note.pitch);
+          const hadSignal = state.noteProgress[i].hadSignal || detectedFrequency !== null;
           if (deltaSeconds > 0) {
             const isInTuneNow = activeColor === 'in-tune';
             state.noteProgress[i] = accumulateTuning(state.noteProgress[i], isInTuneNow, deltaSeconds);
           }
+          state.noteProgress[i].hadSignal = hadSignal;
         });
       }
 
