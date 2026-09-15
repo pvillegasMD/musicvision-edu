@@ -34,9 +34,11 @@
     <button id="micBtn">Activar micrófono</button>
     <label>Ganancia: <input type="range" id="micGain" min="0" max="2" step="0.01" value="1" disabled></label>
     <div id="levelMeterTrack"><div id="levelMeterBar"></div></div>
+    <button id="calibrateBtn" disabled>Calibrar latencia</button>
   </div>
   <div id="micStatus">Micrófono no activado.</div>
   <div id="pitchDisplay">Nota detectada: —</div>
+  <div id="latencyStatus">Latencia: sin calibrar.</div>
   <canvas id="pianoRoll" width="900" height="240"></canvas>
 
   <script src="./midi-parser.js"></script>
@@ -67,12 +69,14 @@
       metronomeNodes: [],
       lastSignalTime: 0,
       pitchHistory: [],
-      latencyOffsetSec: 0
+      latencyOffsetSec: 0,
+      calibration: null
     };
 
     const storedLatencyOffset = parseFloat(localStorage.getItem('appVozLatencyOffsetSec'));
     if (Number.isFinite(storedLatencyOffset)) {
       state.latencyOffsetSec = storedLatencyOffset;
+      updateLatencyStatusDisplay();
     }
 
     state.wavGainNode = state.audioContext.createGain();
@@ -94,6 +98,9 @@
     const MAX_PITCH_HISTORY_SEC = (PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND;
     const PITCH_LINE_GAP_SEC = 0.15;
     const COLOR_PITCH_LINE = '#f5d90a';
+    const CALIBRATION_TRIALS = 4;
+    const CALIBRATION_INTERVAL_SEC = 1.0;
+    const CALIBRATION_WINDOW_SEC = 0.9;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -388,6 +395,25 @@
       el.textContent = `Nota detectada: ${noteName} (${frequency.toFixed(1)} Hz, ${sign}${cents.toFixed(0)} cents)`;
     }
 
+    function updateLatencyStatusDisplay() {
+      const ms = Math.round(state.latencyOffsetSec * 1000);
+      document.getElementById('latencyStatus').textContent = `Latencia calibrada: ${ms}ms`;
+    }
+
+    function finishCalibration() {
+      const offset = computeCalibrationOffset(state.calibration.deltas);
+      state.calibration = null;
+      document.getElementById('calibrateBtn').disabled = false;
+      if (offset === null) {
+        document.getElementById('latencyStatus').textContent =
+          'Calibración fallida: no se detectaron suficientes "Ta". Intentá de nuevo.';
+        return;
+      }
+      state.latencyOffsetSec = offset;
+      localStorage.setItem('appVozLatencyOffsetSec', String(offset));
+      updateLatencyStatusDisplay();
+    }
+
     function updateNoteProgress(currentTime, detectedFrequency, deltaSeconds) {
       let activeIndex = null;
       let activeColor = null;
@@ -436,6 +462,20 @@
         updatePitchDisplay(detectedFrequency);
       }
 
+      if (state.calibration) {
+        const nowAudio = state.audioContext.currentTime;
+        state.calibration.clickTimes.forEach((clickTime, i) => {
+          if (state.calibration.deltas[i] !== null) return;
+          if (nowAudio < clickTime || nowAudio > clickTime + CALIBRATION_WINDOW_SEC) return;
+          if (detectedFrequency !== null) {
+            state.calibration.deltas[i] = nowAudio - clickTime;
+          }
+        });
+        if (nowAudio >= state.calibration.endTime) {
+          finishCalibration();
+        }
+      }
+
       if (detectedFrequency !== null) {
         state.lastSignalTime = judgmentTime;
       }
@@ -475,6 +515,7 @@
         state.voces.push(voz);
         micStatus.textContent = 'Micrófono activado.';
         document.getElementById('micGain').disabled = false;
+        document.getElementById('calibrateBtn').disabled = false;
       } catch (err) {
         micBtn.disabled = false;
         let msg = 'No se pudo activar el micrófono.';
@@ -493,6 +534,23 @@
       if (state.voces[0]) {
         state.voces[0].setGain(parseFloat(e.target.value));
       }
+    });
+
+    document.getElementById('calibrateBtn').addEventListener('click', () => {
+      document.getElementById('calibrateBtn').disabled = true;
+      document.getElementById('latencyStatus').textContent = 'Calibrando... decí "Ta" en cada click.';
+      const startTime = state.audioContext.currentTime + 0.1;
+      const clickTimes = [];
+      for (let i = 0; i < CALIBRATION_TRIALS; i++) {
+        const when = startTime + i * CALIBRATION_INTERVAL_SEC;
+        clickTimes.push(when);
+        playMetronomeClick(state.audioContext, when);
+      }
+      state.calibration = {
+        clickTimes,
+        deltas: clickTimes.map(() => null),
+        endTime: clickTimes[clickTimes.length - 1] + CALIBRATION_WINDOW_SEC
+      };
     });
   </script>
 </body>
