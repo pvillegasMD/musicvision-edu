@@ -28,6 +28,7 @@
   <div id="status">
     <div id="midiStatus">Sin MIDI cargado.</div>
     <div id="wavStatus">Sin WAV cargado.</div>
+    <div id="playbackStatus"></div>
   </div>
   <div class="mic-controls">
     <button id="micBtn">Activar micrófono</button>
@@ -62,7 +63,8 @@
       lastActiveNoteColor: null,
       frozenTime: null,
       beats: [],
-      metronomeNodes: []
+      metronomeNodes: [],
+      lastSignalTime: 0
     };
 
     state.wavGainNode = state.audioContext.createGain();
@@ -79,6 +81,7 @@
     const SCROLL_OUT_DURATION_SEC = PLAYHEAD_X / PIXELS_PER_SECOND;
     const DESINTEGRATION_MIN_OPACITY = 0.15;
     const DESINTEGRATION_MIN_SCALE = 0.6;
+    const SILENCE_STOP_BEATS = 8;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -289,6 +292,8 @@
       state.metronomeNodes = [];
       state.frozenTime = null;
       resetNoteProgress();
+      state.lastSignalTime = 0;
+      document.getElementById('playbackStatus').textContent = '';
       const node = state.audioContext.createBufferSource();
       node.buffer = state.audioBuffer;
       node.connect(state.wavGainNode);
@@ -307,6 +312,20 @@
           state.metronomeNodes.push(osc);
         });
       }
+    }
+
+    function stopPlayback(reason) {
+      if (state.sourceNode) {
+        state.sourceNode.onended = null;
+        state.sourceNode.stop();
+        state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+        state.sourceNode = null;
+      }
+      state.metronomeNodes.forEach((osc) => {
+        try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.metronomeNodes = [];
+      document.getElementById('playbackStatus').textContent = reason;
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
@@ -384,6 +403,14 @@
         updateLevelMeter(peak);
         detectedFrequency = peak > 0.02 ? state.voces[0].getPitch() : null;
         updatePitchDisplay(detectedFrequency);
+      }
+
+      if (detectedFrequency !== null) {
+        state.lastSignalTime = currentTime;
+      }
+
+      if (hasMic() && state.sourceNode && countSilentBeats(state.beats, state.lastSignalTime, currentTime) >= SILENCE_STOP_BEATS) {
+        stopPlayback('Reproducción detenida: no se detectó canto durante varios pulsos.');
       }
 
       updateNoteProgress(currentTime, detectedFrequency, deltaSeconds);
