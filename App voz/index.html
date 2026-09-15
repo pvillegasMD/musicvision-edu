@@ -73,7 +73,12 @@
       calibration: null
     };
 
-    const storedLatencyOffset = parseFloat(localStorage.getItem('appVozLatencyOffsetSec'));
+    let storedLatencyOffset = NaN;
+    try {
+      storedLatencyOffset = parseFloat(localStorage.getItem('appVozLatencyOffsetSec'));
+    } catch (err) {
+      // localStorage no disponible (bloqueado, origen file://, etc.) — seguimos sin calibrar.
+    }
     if (Number.isFinite(storedLatencyOffset)) {
       state.latencyOffsetSec = storedLatencyOffset;
       updateLatencyStatusDisplay();
@@ -101,6 +106,7 @@
     const CALIBRATION_TRIALS = 4;
     const CALIBRATION_INTERVAL_SEC = 1.0;
     const CALIBRATION_WINDOW_SEC = 0.9;
+    const CALIBRATION_DEAD_ZONE_SEC = 0.05;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -323,6 +329,11 @@
         state.sourceNode.onended = null;
         state.sourceNode.stop();
       }
+      if (state.calibration) {
+        state.calibration = null;
+        document.getElementById('calibrateBtn').disabled = false;
+        document.getElementById('latencyStatus').textContent = 'Calibración cancelada.';
+      }
       state.metronomeNodes.forEach((osc) => {
         try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
       });
@@ -410,8 +421,12 @@
         return;
       }
       state.latencyOffsetSec = offset;
-      localStorage.setItem('appVozLatencyOffsetSec', String(offset));
       updateLatencyStatusDisplay();
+      try {
+        localStorage.setItem('appVozLatencyOffsetSec', String(offset));
+      } catch (err) {
+        // localStorage no disponible — el offset sigue aplicando en esta sesión, solo no se persiste.
+      }
     }
 
     function updateNoteProgress(currentTime, detectedFrequency, deltaSeconds) {
@@ -455,8 +470,9 @@
       const currentTime = currentPlaybackTime();
       const judgmentTime = currentTime - state.latencyOffsetSec;
       let detectedFrequency = null;
+      let peak = 0;
       if (state.voces[0]) {
-        const { peak } = state.voces[0].getLevel();
+        ({ peak } = state.voces[0].getLevel());
         updateLevelMeter(peak);
         detectedFrequency = peak > 0.02 ? state.voces[0].getPitch() : null;
         updatePitchDisplay(detectedFrequency);
@@ -466,8 +482,9 @@
         const nowAudio = state.audioContext.currentTime;
         state.calibration.clickTimes.forEach((clickTime, i) => {
           if (state.calibration.deltas[i] !== null) return;
-          if (nowAudio < clickTime || nowAudio > clickTime + CALIBRATION_WINDOW_SEC) return;
-          if (detectedFrequency !== null) {
+          const windowStart = clickTime + CALIBRATION_DEAD_ZONE_SEC;
+          if (nowAudio < windowStart || nowAudio > clickTime + CALIBRATION_WINDOW_SEC) return;
+          if (peak > 0.02) {
             state.calibration.deltas[i] = nowAudio - clickTime;
           }
         });
@@ -537,6 +554,7 @@
     });
 
     document.getElementById('calibrateBtn').addEventListener('click', () => {
+      if (state.sourceNode) return;
       document.getElementById('calibrateBtn').disabled = true;
       document.getElementById('latencyStatus').textContent = 'Calibrando... decí "Ta" en cada click.';
       const startTime = state.audioContext.currentTime + 0.1;
