@@ -21,6 +21,8 @@
   <div class="controls">
     <label>MIDI: <input type="file" id="midiInput" accept=".mid,.midi"></label>
     <label>WAV: <input type="file" id="wavInput" accept=".wav"></label>
+    <label>Instrumento: <input type="file" id="instrumentInput" accept=".wav"></label>
+    <label>Nota de referencia: <input type="number" id="instrumentReferenceNote" min="0" max="127" value="60"></label>
     <button id="playBtn">Reproducir</button>
     <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
     <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
@@ -28,6 +30,7 @@
   <div id="status">
     <div id="midiStatus">Sin MIDI cargado.</div>
     <div id="wavStatus">Sin WAV cargado.</div>
+    <div id="instrumentStatus">Sin instrumento cargado.</div>
     <div id="playbackStatus"></div>
   </div>
   <div class="mic-controls">
@@ -70,7 +73,9 @@
       lastSignalTime: 0,
       pitchHistory: [],
       latencyOffsetSec: 0,
-      calibration: null
+      calibration: null,
+      instrumentSample: null,
+      instrumentReferenceMidi: 60
     };
 
     let storedLatencyOffset = NaN;
@@ -317,6 +322,28 @@
         state.audioBuffer = null;
         document.getElementById('wavStatus').textContent =
           `Error al cargar el WAV: ${err.message || 'Archivo WAV inválido'}`;
+      }
+    });
+
+    document.getElementById('instrumentInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        state.instrumentSample = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('instrumentStatus').textContent =
+          `Instrumento cargado: ${state.instrumentSample.duration.toFixed(2)}s`;
+      } catch (err) {
+        state.instrumentSample = null;
+        document.getElementById('instrumentStatus').textContent =
+          `Error al cargar el instrumento: ${err.message || 'Archivo de audio inválido'}`;
+      }
+    });
+
+    document.getElementById('instrumentReferenceNote').addEventListener('input', (e) => {
+      const value = parseInt(e.target.value, 10);
+      if (Number.isFinite(value)) {
+        state.instrumentReferenceMidi = value;
       }
     });
 
