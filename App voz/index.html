@@ -164,7 +164,21 @@
 
     function getSelectedSemitones() {
       const select = document.getElementById('voiceTypeSelect');
-      return parseInt(select.value, 10);
+      const value = parseInt(select.value, 10);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function getSelectedVoiceTypeLabel() {
+      const select = document.getElementById('voiceTypeSelect');
+      return select.options[select.selectedIndex].textContent;
+    }
+
+    function formatMidiStatusText(notes, durationSec) {
+      if (!notes.length) return 'Sin MIDI cargado.';
+      const label = getSelectedVoiceTypeLabel();
+      const { minPitch, maxPitch } = pitchRange(notes);
+      const rangeText = `${midiToNoteName(minPitch)}–${midiToNoteName(maxPitch)}`;
+      return `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s — ${label}, rango ${rangeText}`;
     }
 
     function currentPlaybackTime() {
@@ -330,7 +344,7 @@
         state.beats = beats;
         resetNoteProgress();
         document.getElementById('midiStatus').textContent =
-          `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s`;
+          formatMidiStatusText(state.notes, durationSec);
         renderPianoRoll();
       } catch (err) {
         state.notes = [];
@@ -347,6 +361,8 @@
     document.getElementById('voiceTypeSelect').addEventListener('change', () => {
       state.notes = transposeNotes(state.originalNotes, getSelectedSemitones());
       resetNoteProgress();
+      document.getElementById('midiStatus').textContent =
+        formatMidiStatusText(state.notes, state.durationSec);
       renderPianoRoll();
     });
 
