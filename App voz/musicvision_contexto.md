@@ -454,6 +454,49 @@ uso real:
     nombre de nota, ej. "C3–A4") al texto de `#midiStatus`, tanto al cargar el MIDI
     como al cambiar el selector.
 
+## Características implementadas (post-roadmap: informe de desempeño)
+(`docs/superpowers/specs/2026-09-15-app-voz-informe-desempeno-design.md`,
+`docs/superpowers/plans/2026-09-15-app-voz-informe-desempeno.md`) — a pedido del
+usuario, para que quede registro de una sesión de canto en vez de que todo sea
+efímero:
+- **Dos datos nuevos que antes no se guardaban:** `noteProgress[i].firstSignalTime`
+  (cuándo se detectó por primera vez que la nota sonó **en tono**, no solo que hubo
+  algún sonido — ver el hallazgo de la revisión final más abajo) y
+  `state.fullPitchHistory` (igual que `state.pitchHistory`, pero **sin podar**: la
+  línea de canto en vivo solo guarda los últimos segundos para dibujarse, este nuevo
+  campo guarda la canción completa para el informe).
+- **`report-utils.js`** (nuevo, funciones puras): calcula 4 métricas — % de notas
+  afinadas (mantuvo el tono al menos 50% de su duración), % de notas que empezaron a
+  tiempo (dentro de medio pulso, calculado dinámicamente desde `state.beats`), racha
+  máxima de notas afinadas seguidas, racha máxima de notas desafinadas seguidas (una
+  nota nunca cantada cuenta como desafinada) — más una tabla nota por nota. Arma el
+  `.txt` descargable.
+- **`report-svg.js`** (nuevo, función pura): dibuja un piano roll estático de toda la
+  canción (no uno que se desplaza como el en vivo) reutilizando sin cambios las
+  funciones de `piano-roll-geometry.js` (`computeNoteRect`, `pitchPointX`, etc.),
+  llamándolas con `currentTime: 0`/`playheadX: 0` para que la posición quede fija en
+  vez de seguir un playhead. Recibe esas funciones geométricas **por parámetro**
+  (`geometryFns`) en vez de importarlas — es la única excepción a la convención de
+  "cada archivo .js es autocontenido, sin requires cruzados" que rige el resto de la
+  app, deliberada para no duplicar la matemática de posicionamiento y arriesgar que
+  el informe visual se desalinee del piano roll en vivo.
+- **Panel `#reportPanel`** en la app: el SVG generado adentro de un contenedor con
+  scroll horizontal nativo (además de dos flechas que hacen `scrollBy(...)` suave), el
+  texto del `.txt` debajo, y botones para descargar ambos (vía `Blob` + `<a download>`
+  temporal, sin librerías). Aparece automáticamente al terminar la reproducción (fin
+  natural, "Detener", o auto-stop por silencio — las tres vías ya existentes) y queda
+  un botón "Ver informe" para reabrirlo. Si no hay MIDI cargado, no se genera nada.
+  Cargar un MIDI nuevo limpia el informe anterior (evita mostrar el reporte de una
+  canción distinta).
+- **Hallazgo de la revisión final (cambio de diseño, no bug de código):** la métrica
+  "empezó a tiempo" originalmente se armaba con "se detectó cualquier señal", lo cual
+  sobreestimaba el resultado en pasajes legato (la nota siguiente ya "tiene señal"
+  desde su primer instante, por la cola de la nota anterior) y con ruido de fondo por
+  encima del umbral del micrófono. Se redefinió — a pedido explícito del usuario, tras
+  presentarle el problema — para que solo cuente como "señal" el primer instante en
+  que la nota sonó **en tono** (reutilizando `liveNoteColor(...) === 'in-tune'`, ya
+  calculado en el mismo lugar), no cualquier sonido detectado.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -676,6 +719,23 @@ uso real:
   pista WAV podría saturar la salida. El spec ya dejó anotado un control de volumen
   dedicado para el instrumento como extensión futura no bloqueante; queda más
   relevante ahora que con el metrónomo (que era monofónico, un solo click a la vez).
+- **El informe visual (`report-svg.js`) puede recortar los puntos de la línea de
+  canto si `latencyOffsetSec` es positivo.** (Informe de desempeño) La corrección de
+  latencia puede restar tiempo a un punto muy temprano de la canción y darle una
+  coordenada X negativa, fuera del `viewBox` — encontrado en la revisión final de la
+  rama, deliberadamente no arreglado en esa misma ronda (requiere decidir si se
+  desplaza todo el dibujo o se recorta el eje, y no afecta el caso típico sin
+  calibración agresiva). El ancho del SVG sí se corrigió para no recortar el otro
+  extremo (canto que sigue después de la última nota).
+- **`isNoteInTune` en `report-utils.js` reimplementa el cálculo de `tuningRatio`
+  en vez de reusar la función de `note-tuning.js`.** (Informe de desempeño) El spec de
+  diseño original decía "reutiliza `tuningRatio`", pero el plan de implementación lo
+  cambió deliberadamente a una duplicación de una línea, siguiendo la convención ya
+  establecida en esta app de "cada archivo .js es autocontenido, sin requires
+  cruzados" (documentado en las Restricciones Globales del plan). La revisión final lo
+  marcó como triplicación de lógica (aparece también en `report-svg.js`), pero se
+  decidió dejarlo así por ser una decisión de arquitectura deliberada, no un defecto —
+  el spec de diseño quedó desactualizado en ese punto.
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
