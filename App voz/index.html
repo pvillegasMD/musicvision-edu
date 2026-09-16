@@ -539,7 +539,7 @@
       state.instrumentNodes = [];
       state.frozenTime = null;
       resetNoteProgress();
-      state.lastSignalTime = 0;
+      state.lastSignalTime = startFrom;
       document.getElementById('playbackStatus').textContent = '';
       document.getElementById('reportPanel').hidden = true;
       document.getElementById('voiceTypeSelect').disabled = true;
