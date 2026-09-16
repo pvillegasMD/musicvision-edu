@@ -8,6 +8,7 @@
   .controls { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
   #status { font-size:14px; opacity:0.8; margin-bottom:12px; line-height:1.6; }
   #pianoRoll { width:100%; max-width:900px; height:240px; background:#1a1d29; border-radius:8px; display:block; }
+  #waveformCanvas { width:100%; max-width:900px; height:60px; background:#1a1d29; border-radius:8px; display:block; margin-bottom:12px; cursor:pointer; }
   button { background:#4a90d9; color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; }
   button:disabled { opacity:0.4; cursor:not-allowed; }
   .mic-controls { display:flex; align-items:center; gap:12px; margin: 16px 0; flex-wrap:wrap; }
@@ -56,6 +57,7 @@
   <div id="micStatus">Micrófono no activado.</div>
   <div id="pitchDisplay">Nota detectada: —</div>
   <div id="latencyStatus">Latencia: sin calibrar.</div>
+  <canvas id="waveformCanvas" width="900" height="60"></canvas>
   <canvas id="pianoRoll" width="900" height="240"></canvas>
 
   <div id="reportPanel" hidden>
@@ -81,6 +83,7 @@
   <script src="./latency-calibration.js"></script>
   <script src="./report-utils.js"></script>
   <script src="./report-svg.js"></script>
+  <script src="./waveform-utils.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -108,7 +111,9 @@
       instrumentSample: null,
       instrumentReferenceMidi: 60,
       instrumentNodes: [],
-      lastReport: null
+      lastReport: null,
+      waveformPeaks: [],
+      waveformPreviewTime: null
     };
 
     let storedLatencyOffset = NaN;
@@ -148,6 +153,9 @@
     const INSTRUMENT_FADE_SEC = 0.02;
     const CANVAS_HEIGHT = document.getElementById('pianoRoll').height;
     const REPORT_SCROLL_STEP = 300;
+    const WAVEFORM_WIDTH = document.getElementById('waveformCanvas').width;
+    const WAVEFORM_HEIGHT = document.getElementById('waveformCanvas').height;
+    const COLOR_WAVEFORM = '#4a90d9';
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -310,6 +318,34 @@
       }
     }
 
+    function renderWaveform() {
+      const canvas = document.getElementById('waveformCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const midY = canvas.height / 2;
+      ctx.strokeStyle = COLOR_WAVEFORM;
+      ctx.beginPath();
+      state.waveformPeaks.forEach((peak, x) => {
+        const yTop = midY - peak.max * midY;
+        const yBottom = midY - peak.min * midY;
+        ctx.moveTo(x + 0.5, yTop);
+        ctx.lineTo(x + 0.5, yBottom);
+      });
+      ctx.stroke();
+
+      const duration = state.audioBuffer ? state.audioBuffer.duration : 0;
+      if (duration > 0) {
+        const displayTime = state.waveformPreviewTime !== null ? state.waveformPreviewTime : currentPlaybackTime();
+        const x = (displayTime / duration) * canvas.width;
+        ctx.strokeStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+    }
+
     function playSuccessBlip(audioContext) {
       const osc = audioContext.createOscillator();
       const gain = audioContext.createGain();
@@ -356,6 +392,7 @@
     }
 
     renderPianoRoll();
+    renderWaveform();
     requestAnimationFrame(mainLoop);
 
     document.getElementById('midiInput').addEventListener('change', async (e) => {
@@ -404,11 +441,25 @@
         state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
         document.getElementById('wavStatus').textContent =
           `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+        const channelCount = state.audioBuffer.numberOfChannels;
+        const channelData = [];
+        for (let ch = 0; ch < channelCount; ch++) {
+          channelData.push(state.audioBuffer.getChannelData(ch));
+        }
+        const monoSamples = new Float32Array(channelData[0].length);
+        for (let i = 0; i < monoSamples.length; i++) {
+          let sum = 0;
+          for (let ch = 0; ch < channelCount; ch++) sum += channelData[ch][i];
+          monoSamples[i] = sum / channelCount;
+        }
+        state.waveformPeaks = computeWaveformPeaks(monoSamples, WAVEFORM_WIDTH);
       } catch (err) {
         state.audioBuffer = null;
+        state.waveformPeaks = [];
         document.getElementById('wavStatus').textContent =
           `Error al cargar el WAV: ${err.message || 'Archivo WAV inválido'}`;
       }
+      renderWaveform();
     });
 
     document.getElementById('instrumentInput').addEventListener('change', async (e) => {
@@ -433,8 +484,39 @@
       }
     });
 
+    let isDraggingWaveform = false;
+
+    function waveformXToTime(clientX) {
+      const canvas = document.getElementById('waveformCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const fraction = Math.min(1, Math.max(0, x / rect.width));
+      const duration = state.audioBuffer ? state.audioBuffer.duration : 0;
+      return fraction * duration;
+    }
+
+    document.getElementById('waveformCanvas').addEventListener('mousedown', (e) => {
+      if (!state.audioBuffer) return;
+      isDraggingWaveform = true;
+      state.waveformPreviewTime = waveformXToTime(e.clientX);
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDraggingWaveform) return;
+      state.waveformPreviewTime = waveformXToTime(e.clientX);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!isDraggingWaveform) return;
+      isDraggingWaveform = false;
+      const time = state.waveformPreviewTime;
+      state.waveformPreviewTime = null;
+      seekTo(time);
+    });
+
     async function play() {
       if (!state.audioBuffer) return;
+      const startFrom = state.frozenTime !== null ? state.frozenTime : 0;
       if (state.audioContext.state === 'suspended') {
         await state.audioContext.resume();
       }
@@ -465,8 +547,8 @@
       node.buffer = state.audioBuffer;
       node.connect(state.wavGainNode);
       state.sourceNode = node;
-      state.playStartTime = state.audioContext.currentTime;
-      node.start();
+      state.playStartTime = state.audioContext.currentTime - startFrom;
+      node.start(state.audioContext.currentTime, startFrom);
       node.onended = () => {
         if (state.sourceNode === node) {
           state.frozenTime = state.audioContext.currentTime - state.playStartTime;
@@ -477,12 +559,14 @@
       };
       if (document.getElementById('metronomeCheckbox').checked) {
         state.beats.forEach((beatTime) => {
+          if (beatTime < startFrom) return;
           const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
           state.metronomeNodes.push(osc);
         });
       }
       if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
         state.notes.forEach((note) => {
+          if (note.start < startFrom) return;
           const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
           const instrumentNode = playInstrumentNote(
             state.audioContext,
@@ -514,6 +598,69 @@
       document.getElementById('playbackStatus').textContent = reason;
       document.getElementById('voiceTypeSelect').disabled = false;
       generateReport();
+    }
+
+    function seekTo(time) {
+      if (!state.audioBuffer) return;
+      const clamped = Math.min(Math.max(time, 0), state.audioBuffer.duration);
+
+      // resetNoteProgress() sets state.frozenTime = null as a side effect — it MUST run
+      // before the "stopped" branch below sets frozenTime to the real seek position,
+      // or that assignment gets silently wiped back to null.
+      resetNoteProgress();
+      state.lastSignalTime = clamped;
+
+      if (state.sourceNode) {
+        state.sourceNode.onended = null;
+        state.sourceNode.stop();
+        state.metronomeNodes.forEach((osc) => {
+          try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
+        });
+        state.metronomeNodes = [];
+        state.instrumentNodes.forEach((node) => {
+          try { node.stop(); } catch (err) { /* already stopped, ignore */ }
+        });
+        state.instrumentNodes = [];
+
+        const node = state.audioContext.createBufferSource();
+        node.buffer = state.audioBuffer;
+        node.connect(state.wavGainNode);
+        state.sourceNode = node;
+        state.playStartTime = state.audioContext.currentTime - clamped;
+        node.start(state.audioContext.currentTime, clamped);
+        node.onended = () => {
+          if (state.sourceNode === node) {
+            state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+            state.sourceNode = null;
+            document.getElementById('voiceTypeSelect').disabled = false;
+            generateReport();
+          }
+        };
+
+        if (document.getElementById('metronomeCheckbox').checked) {
+          state.beats.forEach((beatTime) => {
+            if (beatTime < clamped) return;
+            const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
+            state.metronomeNodes.push(osc);
+          });
+        }
+        if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
+          state.notes.forEach((note) => {
+            if (note.start < clamped) return;
+            const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
+            const instrumentNode = playInstrumentNote(
+              state.audioContext,
+              state.instrumentSample,
+              rate,
+              state.playStartTime + note.start,
+              note.duration
+            );
+            state.instrumentNodes.push(instrumentNode);
+          });
+        }
+      } else {
+        state.frozenTime = clamped;
+      }
     }
 
     function generateReport() {
@@ -727,6 +874,7 @@
 
       updateNoteProgress(judgmentTime, detectedFrequency, deltaSeconds);
       renderPianoRoll();
+      renderWaveform();
 
       requestAnimationFrame(mainLoop);
     }
