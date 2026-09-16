@@ -14,6 +14,10 @@
   #levelMeterTrack { width:220px; height:16px; background:#1a1d29; border-radius:4px; overflow:hidden; }
   #levelMeterBar { height:100%; width:0%; background:#3ecf6e; transition: width 0.05s linear, background-color 0.1s linear; }
   input[type="range"] { width:160px; }
+  .report-controls { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+  .report-controls h2 { margin:0; font-size:16px; }
+  #reportSvgContainer { overflow-x:auto; background:#1a1d29; border-radius:8px; max-width:900px; }
+  #reportTextView { background:#1a1d29; padding:12px; border-radius:8px; max-width:900px; overflow-x:auto; white-space:pre-wrap; margin-top:12px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -32,6 +36,7 @@
     <label>Nota de referencia: <input type="number" id="instrumentReferenceNote" min="0" max="127" value="60"></label>
     <button id="playBtn">Reproducir</button>
     <button id="stopBtn">Detener</button>
+    <button id="viewReportBtn" disabled>Ver informe</button>
     <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
     <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
     <label><input type="checkbox" id="playMidiCheckbox"> Reproducir MIDI</label>
@@ -53,6 +58,19 @@
   <div id="latencyStatus">Latencia: sin calibrar.</div>
   <canvas id="pianoRoll" width="900" height="240"></canvas>
 
+  <div id="reportPanel" hidden>
+    <div class="report-controls">
+      <h2>Informe de desempeño</h2>
+      <button id="reportScrollLeftBtn">◀</button>
+      <button id="reportScrollRightBtn">▶</button>
+      <button id="downloadTxtBtn">Descargar informe (.txt)</button>
+      <button id="downloadSvgBtn">Descargar informe (.svg)</button>
+      <button id="closeReportBtn">Cerrar</button>
+    </div>
+    <div id="reportSvgContainer"></div>
+    <pre id="reportTextView"></pre>
+  </div>
+
   <script src="./midi-parser.js"></script>
   <script src="./piano-roll-geometry.js"></script>
   <script src="./audio-level.js"></script>
@@ -61,6 +79,8 @@
   <script src="./note-tuning.js"></script>
   <script src="./silence-guard.js"></script>
   <script src="./latency-calibration.js"></script>
+  <script src="./report-utils.js"></script>
+  <script src="./report-svg.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -82,11 +102,13 @@
       metronomeNodes: [],
       lastSignalTime: 0,
       pitchHistory: [],
+      fullPitchHistory: [],
       latencyOffsetSec: 0,
       calibration: null,
       instrumentSample: null,
       instrumentReferenceMidi: 60,
-      instrumentNodes: []
+      instrumentNodes: [],
+      lastReport: null
     };
 
     let storedLatencyOffset = NaN;
@@ -124,6 +146,8 @@
     const CALIBRATION_WINDOW_SEC = 0.9;
     const CALIBRATION_DEAD_ZONE_SEC = 0.05;
     const INSTRUMENT_FADE_SEC = 0.02;
+    const CANVAS_HEIGHT = document.getElementById('pianoRoll').height;
+    const REPORT_SCROLL_STEP = 300;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -154,13 +178,14 @@
     }
 
     function resetNoteProgress() {
-      state.noteProgress = state.notes.map(() => ({ timeInTune: 0, timeTotal: 0, hadSignal: false }));
+      state.noteProgress = state.notes.map(() => ({ timeInTune: 0, timeTotal: 0, hadSignal: false, firstSignalTime: null }));
       state.activeNoteIndex = null;
       state.activeNoteColor = null;
       state.lastActiveNoteIndex = null;
       state.lastActiveNoteColor = null;
       state.frozenTime = null;
       state.pitchHistory = [];
+      state.fullPitchHistory = [];
     }
 
     function getSelectedSemitones() {
@@ -430,6 +455,7 @@
       resetNoteProgress();
       state.lastSignalTime = 0;
       document.getElementById('playbackStatus').textContent = '';
+      document.getElementById('reportPanel').hidden = true;
       document.getElementById('voiceTypeSelect').disabled = true;
       const node = state.audioContext.createBufferSource();
       node.buffer = state.audioBuffer;
@@ -442,6 +468,7 @@
           state.frozenTime = state.audioContext.currentTime - state.playStartTime;
           state.sourceNode = null;
           document.getElementById('voiceTypeSelect').disabled = false;
+          generateReport();
         }
       };
       if (document.getElementById('metronomeCheckbox').checked) {
@@ -482,6 +509,51 @@
       state.instrumentNodes = [];
       document.getElementById('playbackStatus').textContent = reason;
       document.getElementById('voiceTypeSelect').disabled = false;
+      generateReport();
+    }
+
+    function generateReport() {
+      if (!state.notes.length) return;
+      const stats = computeReportStats(state.notes, state.noteProgress, state.beats);
+      const text = formatReportText(stats, state.durationSec, midiToNoteName);
+      const svg = buildReportSvg(
+        state.notes,
+        state.noteProgress,
+        state.fullPitchHistory,
+        {
+          pixelsPerSecond: PIXELS_PER_SECOND,
+          rowHeight: ROW_HEIGHT,
+          height: CANVAS_HEIGHT,
+          gapThresholdSec: PITCH_LINE_GAP_SEC,
+          colors: {
+            inTune: COLOR_IN_TUNE,
+            outOfTune: COLOR_OUT_OF_TUNE,
+            noSignal: COLOR_NO_SIGNAL,
+            pitchLine: COLOR_PITCH_LINE
+          }
+        },
+        { pitchRange, computeNoteRect, pitchToY, pitchPointX, shouldBreakLine }
+      );
+      state.lastReport = { stats, text, svg };
+      document.getElementById('viewReportBtn').disabled = false;
+      showReport();
+    }
+
+    function showReport() {
+      if (!state.lastReport) return;
+      document.getElementById('reportSvgContainer').innerHTML = state.lastReport.svg;
+      document.getElementById('reportTextView').textContent = state.lastReport.text;
+      document.getElementById('reportPanel').hidden = false;
+    }
+
+    function downloadTextFile(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     document.getElementById('playBtn').addEventListener('click', play);
@@ -489,6 +561,30 @@
     document.getElementById('stopBtn').addEventListener('click', () => {
       if (!state.sourceNode) return;
       stopPlayback('Reproducción detenida por el usuario.');
+    });
+
+    document.getElementById('viewReportBtn').addEventListener('click', showReport);
+
+    document.getElementById('closeReportBtn').addEventListener('click', () => {
+      document.getElementById('reportPanel').hidden = true;
+    });
+
+    document.getElementById('reportScrollLeftBtn').addEventListener('click', () => {
+      document.getElementById('reportSvgContainer').scrollBy({ left: -REPORT_SCROLL_STEP, behavior: 'smooth' });
+    });
+
+    document.getElementById('reportScrollRightBtn').addEventListener('click', () => {
+      document.getElementById('reportSvgContainer').scrollBy({ left: REPORT_SCROLL_STEP, behavior: 'smooth' });
+    });
+
+    document.getElementById('downloadTxtBtn').addEventListener('click', () => {
+      if (!state.lastReport) return;
+      downloadTextFile('informe-app-voz.txt', state.lastReport.text, 'text/plain');
+    });
+
+    document.getElementById('downloadSvgBtn').addEventListener('click', () => {
+      if (!state.lastReport) return;
+      downloadTextFile('informe-app-voz.svg', state.lastReport.svg, 'image/svg+xml');
     });
 
     document.getElementById('muteWavCheckbox').addEventListener('change', (e) => {
@@ -552,11 +648,15 @@
           activeIndex = i;
           activeColor = liveNoteColor(detectedFrequency, note.pitch);
           const hadSignal = state.noteProgress[i].hadSignal || detectedFrequency !== null;
+          const firstSignalTime = state.noteProgress[i].firstSignalTime !== null
+            ? state.noteProgress[i].firstSignalTime
+            : (detectedFrequency !== null ? currentTime : null);
           if (deltaSeconds > 0) {
             const isInTuneNow = activeColor === 'in-tune';
             state.noteProgress[i] = accumulateTuning(state.noteProgress[i], isInTuneNow, deltaSeconds);
           }
           state.noteProgress[i].hadSignal = hadSignal;
+          state.noteProgress[i].firstSignalTime = firstSignalTime;
         });
       }
 
@@ -616,6 +716,7 @@
 
       if (hasMic() && state.sourceNode && detectedFrequency !== null) {
         state.pitchHistory.push({ time: judgmentTime, pitch: frequencyToMidi(detectedFrequency) });
+        state.fullPitchHistory.push({ time: judgmentTime, pitch: frequencyToMidi(detectedFrequency) });
       }
       state.pitchHistory = state.pitchHistory.filter((p) => p.time > currentTime - MAX_PITCH_HISTORY_SEC);
 
