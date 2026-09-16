@@ -369,6 +369,8 @@
         state.durationSec = durationSec;
         state.beats = beats;
         resetNoteProgress();
+        state.lastReport = null;
+        document.getElementById('viewReportBtn').disabled = true;
         document.getElementById('midiStatus').textContent =
           formatMidiStatusText(state.notes, durationSec);
         renderPianoRoll();
@@ -378,6 +380,8 @@
         state.durationSec = 0;
         state.beats = [];
         resetNoteProgress();
+        state.lastReport = null;
+        document.getElementById('viewReportBtn').disabled = true;
         document.getElementById('midiStatus').textContent =
           `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
         renderPianoRoll();
@@ -525,6 +529,7 @@
           rowHeight: ROW_HEIGHT,
           height: CANVAS_HEIGHT,
           gapThresholdSec: PITCH_LINE_GAP_SEC,
+          durationSec: state.durationSec,
           colors: {
             inTune: COLOR_IN_TUNE,
             outOfTune: COLOR_OUT_OF_TUNE,
@@ -579,7 +584,7 @@
 
     document.getElementById('downloadTxtBtn').addEventListener('click', () => {
       if (!state.lastReport) return;
-      downloadTextFile('informe-app-voz.txt', state.lastReport.text, 'text/plain');
+      downloadTextFile('informe-app-voz.txt', state.lastReport.text, 'text/plain;charset=utf-8');
     });
 
     document.getElementById('downloadSvgBtn').addEventListener('click', () => {
@@ -650,7 +655,7 @@
           const hadSignal = state.noteProgress[i].hadSignal || detectedFrequency !== null;
           const firstSignalTime = state.noteProgress[i].firstSignalTime !== null
             ? state.noteProgress[i].firstSignalTime
-            : (detectedFrequency !== null ? currentTime : null);
+            : (activeColor === 'in-tune' ? currentTime : null);
           if (deltaSeconds > 0) {
             const isInTuneNow = activeColor === 'in-tune';
             state.noteProgress[i] = accumulateTuning(state.noteProgress[i], isInTuneNow, deltaSeconds);

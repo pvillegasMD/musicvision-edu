@@ -8,6 +8,7 @@ const OPTIONS = {
   rowHeight: 18,
   height: 240,
   gapThresholdSec: 0.15,
+  durationSec: 0,
   colors: { inTune: '#3ecf6e', outOfTune: '#e05a4e', noSignal: '#6b7280', pitchLine: '#f5d90a' }
 };
 
@@ -60,4 +61,11 @@ test('buildReportSvg omits the pitch path element entirely when there is no pitc
 test('buildReportSvg handles an empty notes array without throwing', () => {
   const svg = buildReportSvg([], [], [], OPTIONS, geometryFns);
   assert.match(svg, /^<svg/);
+});
+
+test('buildReportSvg widens the SVG to cover options.durationSec when it exceeds the notes span', () => {
+  const notes = [{ start: 0, duration: 1, pitch: 60 }]; // notes span = 1s
+  const noteProgress = [{ timeInTune: 1, timeTotal: 1, hadSignal: true }];
+  const svg = buildReportSvg(notes, noteProgress, [], { ...OPTIONS, durationSec: 5 }, geometryFns);
+  assert.match(svg, /width="500"/); // 5s * 100px/s, not 1s * 100px/s = 100
 });
