@@ -497,6 +497,51 @@ efímero:
   que la nota sonó **en tono** (reutilizando `liveNoteColor(...) === 'in-tune'`, ya
   calculado en el mismo lugar), no cualquier sonido detectado.
 
+## Características implementadas (post-roadmap: forma de onda + salto de posición)
+(`docs/superpowers/specs/2026-09-16-app-voz-forma-onda-seek-design.md`,
+`docs/superpowers/plans/2026-09-16-app-voz-forma-onda-seek.md`) — a pedido del
+usuario, para poder ubicarse visualmente en cualquier parte de la canción (por
+ejemplo, para practicar solo el último coro) sin esperar a que la reproducción
+llegue sola:
+- **`waveform-utils.js`** (nuevo, función pura `computeWaveformPeaks(samples,
+  width)`): reduce el WAV a un par `{min, max}` por columna de píxel — la
+  técnica estándar de downsampling que usa cualquier editor de audio.
+- **`#waveformCanvas`**, arriba del piano roll: dibuja la forma de onda completa
+  del WAV (picos calculados una sola vez al cargar el WAV, promediando canales
+  si es estéreo) más una línea de posición que se redibuja cada cuadro. Click o
+  arrastre sobre el canvas saltan a cualquier punto — mientras se arrastra, la
+  línea se mueve como vista previa (`state.waveformPreviewTime`) sin reiniciar
+  el audio; el salto real ocurre recién al soltar (`mouseup`).
+- **`seekTo(time)`** (nuevo): funciona sonando o parada. El rango de salto usa
+  `state.audioBuffer.duration` (la duración real del WAV), no `state.durationSec`
+  (la duración del MIDI — un valor distinto y a veces desalineado, ver pendiente
+  ya anotado sobre esto). Reinicia todo el progreso de notas al saltar
+  (`resetNoteProgress()`), y resetea `state.lastSignalTime` a la nueva posición
+  para que el auto-stop por silencio (Etapa 6) no cuente como "silencio" el
+  tramo completo entre la posición vieja y la nueva.
+- **Hallazgo de la revisión final (bug real, no solo hallazgo cosmético):**
+  el plan original hacía que `play()` arrancara desde `state.frozenTime` — pero
+  ese campo en realidad significa "dónde se congeló el piano roll", y se
+  escribe en **cualquier** parada (fin natural, "Detener", auto-stop por
+  silencio), no solo al saltar con la forma de onda. Consecuencia: terminar de
+  cantar una canción y apretar "Reproducir" de nuevo dejaba de reiniciar desde
+  el principio — el segundo intento arrancaba cerca del final del buffer y no
+  sonaba nada, rompiendo el flujo más básico de la app (cantar la misma
+  canción dos veces). Se corrigió agregando un campo separado,
+  **`state.pendingStartTime`**: solo lo escribe `seekTo()` cuando salta
+  estando parada, y `play()` lo lee y lo limpia inmediatamente — `frozenTime`
+  sigue significando exactamente lo mismo que antes de esta rama, sin tocar
+  sus otros escritores. Cargar un MIDI nuevo limpia `pendingStartTime`
+  (una posición saltada de una canción anterior no tiene sentido); cambiar el
+  tipo de voz no lo limpia (seguís practicando la misma canción).
+- **Refactor incluido:** `play()` y `seekTo()` compartían ~20 líneas
+  duplicadas (crear el nodo, programar metrónomo/instrumento con offset,
+  `onended`) — ya anotado como pendiente desde la Etapa 8, y esta rama lo
+  empeoró en vez de mejorarlo hasta que la revisión final lo marcó. Se
+  extrajeron `stopAndClearScheduledNodes()` y `startSourceAt(offset)`,
+  usadas por ambas funciones. `stopPlayback()` todavía no usa el primer
+  helper (queda su propia versión inline) — pendiente menor, no bloqueante.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -736,6 +781,23 @@ efímero:
   marcó como triplicación de lógica (aparece también en `report-svg.js`), pero se
   decidió dejarlo así por ser una decisión de arquitectura deliberada, no un defecto —
   el spec de diseño quedó desactualizado en ese punto.
+- **Click derecho/click del medio sobre la forma de onda también dispara un salto.**
+  (Forma de onda + seek) El handler de `mousedown` no chequea qué botón se usó —
+  cualquier botón inicia el arrastre. Un `if (e.button !== 0) return;` lo arregla.
+- **Si el mouse se suelta fuera de la ventana durante un arrastre, `isDraggingWaveform`
+  queda trabado en `true`.** (Forma de onda + seek) El marcador sigue al mouse sin
+  ningún botón apretado, y el próximo click en cualquier parte del documento dispara
+  un salto no intencional. Solución más simple: chequear `e.buttons === 0` en el
+  handler de `mousemove` y cancelar el arrastre si no hay ningún botón presionado.
+- **`waveformXToTime` (y su inversa, el cálculo de la posición del marcador) no son
+  funciones puras testeadas**, a diferencia de la geometría equivalente del piano
+  roll (`piano-roll-geometry.js`). Es la única lógica nueva de esta etapa sin
+  cobertura de tests — candidato para extraer a `waveform-utils.js` si se vuelve a
+  tocar este código.
+- **Saltar de posición estando parada deja el texto de estado ("Reproducción
+  detenida...") y el panel de informe visibles, sin actualizarse.** (Forma de onda +
+  seek) Arrastrar el marcador a otro punto no limpia `#playbackStatus` ni cierra
+  `#reportPanel`, así que el informe visible ya no corresponde a la nueva posición.
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
@@ -761,9 +823,13 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
 8. ~~Reproducción audible del MIDI como guía sonora~~ ✅ (Etapa 8, completa — el
    roadmap original ya no tiene etapas pendientes)
 
-Post-roadmap, ya con la app en uso real, se agregaron dos características más a
-pedido del usuario: ~~botón "Detener"~~ ✅ y ~~cambiador de octava (voz
-masculina/bajo/barítono)~~ ✅ — ver la sección de características arriba.
+Post-roadmap, ya con la app en uso real, se agregaron varias características más a
+pedido del usuario: ~~botón "Detener"~~ ✅, ~~cambiador de octava (voz
+masculina/bajo/barítono)~~ ✅, ~~informe de desempeño (datos + visual tipo
+sismógrafo)~~ ✅, y ~~forma de onda + salto de posición~~ ✅ — ver las secciones de
+características arriba. Loops para practicar un pasaje específico quedaron
+explícitamente fuera de alcance de esta última etapa, como una posible extensión
+futura con su propio diseño.
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
 externa (modelado como un array de objetos "Voz", uno por fuente de audio), un
