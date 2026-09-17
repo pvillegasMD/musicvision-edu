@@ -113,7 +113,8 @@
       instrumentNodes: [],
       lastReport: null,
       waveformPeaks: [],
-      waveformPreviewTime: null
+      waveformPreviewTime: null,
+      pendingStartTime: null
     };
 
     let storedLatencyOffset = NaN;
@@ -154,7 +155,6 @@
     const CANVAS_HEIGHT = document.getElementById('pianoRoll').height;
     const REPORT_SCROLL_STEP = 300;
     const WAVEFORM_WIDTH = document.getElementById('waveformCanvas').width;
-    const WAVEFORM_HEIGHT = document.getElementById('waveformCanvas').height;
     const COLOR_WAVEFORM = '#4a90d9';
 
     function createVoz(stream, audioContext) {
@@ -407,6 +407,7 @@
         state.beats = beats;
         resetNoteProgress();
         state.lastReport = null;
+        state.pendingStartTime = null;
         document.getElementById('viewReportBtn').disabled = true;
         document.getElementById('midiStatus').textContent =
           formatMidiStatusText(state.notes, durationSec);
@@ -418,6 +419,7 @@
         state.beats = [];
         resetNoteProgress();
         state.lastReport = null;
+        state.pendingStartTime = null;
         document.getElementById('viewReportBtn').disabled = true;
         document.getElementById('midiStatus').textContent =
           `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
@@ -516,7 +518,10 @@
 
     async function play() {
       if (!state.audioBuffer) return;
-      const startFrom = state.frozenTime !== null ? state.frozenTime : 0;
+      const startFrom = state.pendingStartTime !== null
+        ? Math.min(state.pendingStartTime, state.audioBuffer.duration)
+        : 0;
+      state.pendingStartTime = null;
       if (state.audioContext.state === 'suspended') {
         await state.audioContext.resume();
       }
@@ -529,55 +534,14 @@
         document.getElementById('calibrateBtn').disabled = false;
         document.getElementById('latencyStatus').textContent = 'Calibración cancelada.';
       }
-      state.metronomeNodes.forEach((osc) => {
-        try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
-      });
-      state.metronomeNodes = [];
-      state.instrumentNodes.forEach((node) => {
-        try { node.stop(); } catch (err) { /* already stopped, ignore */ }
-      });
-      state.instrumentNodes = [];
+      stopAndClearScheduledNodes();
       state.frozenTime = null;
       resetNoteProgress();
       state.lastSignalTime = startFrom;
       document.getElementById('playbackStatus').textContent = '';
       document.getElementById('reportPanel').hidden = true;
       document.getElementById('voiceTypeSelect').disabled = true;
-      const node = state.audioContext.createBufferSource();
-      node.buffer = state.audioBuffer;
-      node.connect(state.wavGainNode);
-      state.sourceNode = node;
-      state.playStartTime = state.audioContext.currentTime - startFrom;
-      node.start(state.audioContext.currentTime, startFrom);
-      node.onended = () => {
-        if (state.sourceNode === node) {
-          state.frozenTime = state.audioContext.currentTime - state.playStartTime;
-          state.sourceNode = null;
-          document.getElementById('voiceTypeSelect').disabled = false;
-          generateReport();
-        }
-      };
-      if (document.getElementById('metronomeCheckbox').checked) {
-        state.beats.forEach((beatTime) => {
-          if (beatTime < startFrom) return;
-          const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
-          state.metronomeNodes.push(osc);
-        });
-      }
-      if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
-        state.notes.forEach((note) => {
-          if (note.start < startFrom) return;
-          const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
-          const instrumentNode = playInstrumentNote(
-            state.audioContext,
-            state.instrumentSample,
-            rate,
-            state.playStartTime + note.start,
-            note.duration
-          );
-          state.instrumentNodes.push(instrumentNode);
-        });
-      }
+      startSourceAt(startFrom);
     }
 
     function stopPlayback(reason) {
@@ -600,6 +564,55 @@
       generateReport();
     }
 
+    function stopAndClearScheduledNodes() {
+      state.metronomeNodes.forEach((osc) => {
+        try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.metronomeNodes = [];
+      state.instrumentNodes.forEach((node) => {
+        try { node.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.instrumentNodes = [];
+    }
+
+    function startSourceAt(offset) {
+      const node = state.audioContext.createBufferSource();
+      node.buffer = state.audioBuffer;
+      node.connect(state.wavGainNode);
+      state.sourceNode = node;
+      state.playStartTime = state.audioContext.currentTime - offset;
+      node.start(state.audioContext.currentTime, offset);
+      node.onended = () => {
+        if (state.sourceNode === node) {
+          state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+          state.sourceNode = null;
+          document.getElementById('voiceTypeSelect').disabled = false;
+          generateReport();
+        }
+      };
+      if (document.getElementById('metronomeCheckbox').checked) {
+        state.beats.forEach((beatTime) => {
+          if (beatTime < offset) return;
+          const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
+          state.metronomeNodes.push(osc);
+        });
+      }
+      if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
+        state.notes.forEach((note) => {
+          if (note.start < offset) return;
+          const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
+          const instrumentNode = playInstrumentNote(
+            state.audioContext,
+            state.instrumentSample,
+            rate,
+            state.playStartTime + note.start,
+            note.duration
+          );
+          state.instrumentNodes.push(instrumentNode);
+        });
+      }
+    }
+
     function seekTo(time) {
       if (!state.audioBuffer) return;
       const clamped = Math.min(Math.max(time, 0), state.audioBuffer.duration);
@@ -613,53 +626,11 @@
       if (state.sourceNode) {
         state.sourceNode.onended = null;
         state.sourceNode.stop();
-        state.metronomeNodes.forEach((osc) => {
-          try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
-        });
-        state.metronomeNodes = [];
-        state.instrumentNodes.forEach((node) => {
-          try { node.stop(); } catch (err) { /* already stopped, ignore */ }
-        });
-        state.instrumentNodes = [];
-
-        const node = state.audioContext.createBufferSource();
-        node.buffer = state.audioBuffer;
-        node.connect(state.wavGainNode);
-        state.sourceNode = node;
-        state.playStartTime = state.audioContext.currentTime - clamped;
-        node.start(state.audioContext.currentTime, clamped);
-        node.onended = () => {
-          if (state.sourceNode === node) {
-            state.frozenTime = state.audioContext.currentTime - state.playStartTime;
-            state.sourceNode = null;
-            document.getElementById('voiceTypeSelect').disabled = false;
-            generateReport();
-          }
-        };
-
-        if (document.getElementById('metronomeCheckbox').checked) {
-          state.beats.forEach((beatTime) => {
-            if (beatTime < clamped) return;
-            const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
-            state.metronomeNodes.push(osc);
-          });
-        }
-        if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
-          state.notes.forEach((note) => {
-            if (note.start < clamped) return;
-            const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
-            const instrumentNode = playInstrumentNote(
-              state.audioContext,
-              state.instrumentSample,
-              rate,
-              state.playStartTime + note.start,
-              note.duration
-            );
-            state.instrumentNodes.push(instrumentNode);
-          });
-        }
+        stopAndClearScheduledNodes();
+        startSourceAt(clamped);
       } else {
         state.frozenTime = clamped;
+        state.pendingStartTime = clamped;
       }
     }
 
