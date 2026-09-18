@@ -681,12 +681,15 @@
       state.playStartTime = state.audioContext.currentTime - offset;
       node.start(state.audioContext.currentTime, offset);
       node.onended = () => {
-        if (state.sourceNode === node) {
-          state.frozenTime = state.audioContext.currentTime - state.playStartTime;
-          state.sourceNode = null;
-          document.getElementById('voiceTypeSelect').disabled = false;
-          generateReport();
+        if (state.sourceNode !== node) return;
+        if (state.loopActive && state.loopEngaged) {
+          seekTo(state.loopStart);
+          return;
         }
+        state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+        state.sourceNode = null;
+        document.getElementById('voiceTypeSelect').disabled = false;
+        generateReport();
       };
       if (document.getElementById('metronomeCheckbox').checked) {
         state.beats.forEach((beatTime) => {
@@ -929,7 +932,7 @@
       }
 
       if (state.loopActive && state.sourceNode) {
-        if (!state.loopEngaged && currentTime >= state.loopStart && currentTime < state.loopEnd) {
+        if (!state.loopEngaged && computeLoopEngaged(true, currentTime, state.loopStart, state.loopEnd)) {
           state.loopEngaged = true;
         }
         if (state.loopEngaged && currentTime >= state.loopEnd) {
