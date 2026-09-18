@@ -542,6 +542,44 @@ llegue sola:
   usadas por ambas funciones. `stopPlayback()` todavía no usa el primer
   helper (queda su propia versión inline) — pendiente menor, no bloqueante.
 
+## Características implementadas (post-roadmap: loop de práctica)
+(`docs/superpowers/specs/2026-09-18-app-voz-loop-practica-design.md`,
+`docs/superpowers/plans/2026-09-18-app-voz-loop-practica.md`) — completa el pedido
+original de "loops para estudio de algún pasaje", que había quedado explícitamente
+fuera de alcance de la etapa de forma de onda + seek:
+- **`loop-utils.js`** (nuevo, funciones puras, todas en segundos — nunca en
+  píxeles): `computeLoopEngaged(active, position, loopStart, loopEnd)`,
+  `clampLoopStart`/`clampLoopEnd` (no dejan que una línea cruce a la otra, con un
+  margen mínimo de 0.1s), `hitTestLoopMarker(time, loopStart, loopEnd, tolerance)`.
+- **`#loopToggleBtn`**: al activarlo por primera vez, marca todo el tema
+  (`[0, duración]`); activaciones siguientes reusan el último tramo marcado —
+  no se pierde al apagar el botón.
+- **Dos líneas naranjas arrastrables** sobre `#waveformCanvas` (▶ inicio, ◀ fin),
+  en cualquier momento, sonando o parada. A diferencia de la línea blanca de
+  posición, arrastrar una línea de loop escribe directo en
+  `state.loopStart`/`state.loopEnd` en cada `mousemove` — no necesita el
+  mecanismo de vista previa + confirmar al soltar, porque mover una línea de loop
+  no tiene ningún efecto de audio por sí solo.
+- **`state.loopEngaged`**: enganche de una sola vía — se activa recién cuando la
+  reproducción entra naturalmente en `[loopStart, loopEnd)`. Activar el loop
+  estando ya pasado el tramo marcado no fuerza ningún salto hacia atrás (queda
+  esperando a que la reproducción vuelva a esa zona por su cuenta). El salto en
+  sí reusa `seekTo()` — la misma función del salto manual — heredando gratis el
+  reinicio del progreso de notas y la protección contra el falso auto-stop por
+  silencio.
+- **Hallazgo de la revisión final (bug real, no cosmético): carrera entre el fin
+  natural del audio y el salto del loop cuando el tramo cubre toda la canción**
+  (el valor por defecto de la primera activación). El evento `onended` del nodo
+  de audio y el chequeo de "llegó al final del tramo" del `mainLoop` podían
+  dispararse en el mismo instante — si ganaba `onended`, el loop daba una sola
+  vuelta y se paraba solo en vez de repetir. Se corrigió haciendo que `onended`
+  chequee primero si el loop está activo y enganchado, y en ese caso delegue en
+  `seekTo()` en vez de hacer la limpieza normal de "canción terminada".
+- **Decisión confirmada, no un bug:** si con el loop activo saltás manualmente
+  (click en la forma de onda) a un punto después del fin del tramo marcado, el
+  loop queda desarmado hasta que la reproducción vuelva a entrar en esa zona por
+  su cuenta — mismo criterio que activar el loop desde afuera de la zona.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -798,6 +836,22 @@ llegue sola:
   detenida...") y el panel de informe visibles, sin actualizarse.** (Forma de onda +
   seek) Arrastrar el marcador a otro punto no limpia `#playbackStatus` ni cierra
   `#reportPanel`, así que el informe visible ya no corresponde a la nueva posición.
+- **Cada vuelta del loop reprograma metrónomo/instrumento hasta el final de la
+  canción, no solo hasta el fin del tramo marcado.** (Loop de práctica)
+  `startSourceAt` filtra solo `note.start < offset` — no conoce `loopEnd` — así
+  que un loop de 4 segundos sobre un MIDI de 3 minutos programa (y después
+  destruye) todas las notas restantes de la canción en cada vuelta. No revienta
+  nada, pero es trabajo de más; con un loop muy corto (cerca del mínimo de 0.1s)
+  arrastrando la línea de fin durante la reproducción, podría notarse. Solución:
+  cuando `state.loopActive`, filtrar también `note.start >= state.loopEnd`.
+- **Las líneas del loop en los extremos (0 o el final de la canción) quedan
+  recortadas por el borde del canvas.** (Loop de práctica) Mismo problema que ya
+  tenía la línea blanca de posición (no usa el ajuste de medio píxel que sí usan
+  las barras de la forma de onda) — los triángulos de dirección siguen visibles,
+  así que no es grave, solo cosmético.
+- **`#loopToggleBtn` no tiene `aria-pressed`** — su estado activo/inactivo se
+  distingue solo por color. Un candidato fácil de accesibilidad si se retoma este
+  código.
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
@@ -826,10 +880,10 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
 Post-roadmap, ya con la app en uso real, se agregaron varias características más a
 pedido del usuario: ~~botón "Detener"~~ ✅, ~~cambiador de octava (voz
 masculina/bajo/barítono)~~ ✅, ~~informe de desempeño (datos + visual tipo
-sismógrafo)~~ ✅, y ~~forma de onda + salto de posición~~ ✅ — ver las secciones de
-características arriba. Loops para practicar un pasaje específico quedaron
-explícitamente fuera de alcance de esta última etapa, como una posible extensión
-futura con su propio diseño.
+sismógrafo)~~ ✅, ~~forma de onda + salto de posición~~ ✅, y ~~loop de
+práctica~~ ✅ — ver las secciones de características arriba. Con esto se completó
+el pedido original de "una barra de progreso + loops para estudio de algún
+pasaje" en dos etapas separadas.
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
 externa (modelado como un array de objetos "Voz", uno por fuente de audio), un
