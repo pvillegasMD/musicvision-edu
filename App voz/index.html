@@ -11,6 +11,7 @@
   #waveformCanvas { width:100%; max-width:900px; height:60px; background:#1a1d29; border-radius:8px; display:block; margin-bottom:12px; cursor:pointer; }
   button { background:#4a90d9; color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; }
   button:disabled { opacity:0.4; cursor:not-allowed; }
+  button.active { background:#ff9800; }
   .mic-controls { display:flex; align-items:center; gap:12px; margin: 16px 0; flex-wrap:wrap; }
   #levelMeterTrack { width:220px; height:16px; background:#1a1d29; border-radius:4px; overflow:hidden; }
   #levelMeterBar { height:100%; width:0%; background:#3ecf6e; transition: width 0.05s linear, background-color 0.1s linear; }
@@ -38,6 +39,7 @@
     <button id="playBtn">Reproducir</button>
     <button id="stopBtn">Detener</button>
     <button id="viewReportBtn" disabled>Ver informe</button>
+    <button id="loopToggleBtn" disabled>Loop</button>
     <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
     <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
     <label><input type="checkbox" id="playMidiCheckbox"> Reproducir MIDI</label>
@@ -84,6 +86,7 @@
   <script src="./report-utils.js"></script>
   <script src="./report-svg.js"></script>
   <script src="./waveform-utils.js"></script>
+  <script src="./loop-utils.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -114,7 +117,11 @@
       lastReport: null,
       waveformPeaks: [],
       waveformPreviewTime: null,
-      pendingStartTime: null
+      pendingStartTime: null,
+      loopActive: false,
+      loopStart: null,
+      loopEnd: null,
+      loopEngaged: false
     };
 
     let storedLatencyOffset = NaN;
@@ -156,6 +163,10 @@
     const REPORT_SCROLL_STEP = 300;
     const WAVEFORM_WIDTH = document.getElementById('waveformCanvas').width;
     const COLOR_WAVEFORM = '#4a90d9';
+    const COLOR_LOOP_MARKER = '#ff9800';
+    const LOOP_MIN_GAP_SEC = 0.1;
+    const LOOP_MARKER_HIT_TOLERANCE_PX = 8;
+    const LOOP_MARKER_TRIANGLE_SIZE = 8;
 
     function createVoz(stream, audioContext) {
       const source = audioContext.createMediaStreamSource(stream);
@@ -344,6 +355,34 @@
         ctx.lineTo(x, canvas.height);
         ctx.stroke();
       }
+
+      if (state.loopActive && state.loopStart !== null && state.loopEnd !== null && duration > 0) {
+        const startX = (state.loopStart / duration) * canvas.width;
+        const endX = (state.loopEnd / duration) * canvas.width;
+
+        ctx.strokeStyle = COLOR_LOOP_MARKER;
+        ctx.beginPath();
+        ctx.moveTo(startX, 0);
+        ctx.lineTo(startX, canvas.height);
+        ctx.moveTo(endX, 0);
+        ctx.lineTo(endX, canvas.height);
+        ctx.stroke();
+
+        ctx.fillStyle = COLOR_LOOP_MARKER;
+        ctx.beginPath();
+        ctx.moveTo(startX, 0);
+        ctx.lineTo(startX, LOOP_MARKER_TRIANGLE_SIZE);
+        ctx.lineTo(startX + LOOP_MARKER_TRIANGLE_SIZE, LOOP_MARKER_TRIANGLE_SIZE / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(endX, 0);
+        ctx.lineTo(endX, LOOP_MARKER_TRIANGLE_SIZE);
+        ctx.lineTo(endX - LOOP_MARKER_TRIANGLE_SIZE, LOOP_MARKER_TRIANGLE_SIZE / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
 
     function playSuccessBlip(audioContext) {
@@ -455,9 +494,21 @@
           monoSamples[i] = sum / channelCount;
         }
         state.waveformPeaks = computeWaveformPeaks(monoSamples, WAVEFORM_WIDTH);
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = false;
+        document.getElementById('loopToggleBtn').classList.remove('active');
       } catch (err) {
         state.audioBuffer = null;
         state.waveformPeaks = [];
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = true;
+        document.getElementById('loopToggleBtn').classList.remove('active');
         document.getElementById('wavStatus').textContent =
           `Error al cargar el WAV: ${err.message || 'Archivo WAV inválido'}`;
       }
@@ -486,7 +537,7 @@
       }
     });
 
-    let isDraggingWaveform = false;
+    let waveformDragTarget = null;
 
     function waveformXToTime(clientX) {
       const canvas = document.getElementById('waveformCanvas');
@@ -499,29 +550,76 @@
 
     document.getElementById('waveformCanvas').addEventListener('mousedown', (e) => {
       if (!state.audioBuffer) return;
-      isDraggingWaveform = true;
-      state.waveformPreviewTime = waveformXToTime(e.clientX);
+      const clickTime = waveformXToTime(e.clientX);
+
+      if (state.loopActive) {
+        const canvas = document.getElementById('waveformCanvas');
+        const rect = canvas.getBoundingClientRect();
+        const toleranceSec = (LOOP_MARKER_HIT_TOLERANCE_PX / rect.width) * state.audioBuffer.duration;
+        const hit = hitTestLoopMarker(clickTime, state.loopStart, state.loopEnd, toleranceSec);
+        if (hit === 'start') {
+          waveformDragTarget = 'loopStart';
+          return;
+        }
+        if (hit === 'end') {
+          waveformDragTarget = 'loopEnd';
+          return;
+        }
+      }
+
+      waveformDragTarget = 'position';
+      state.waveformPreviewTime = clickTime;
     });
 
     document.addEventListener('mousemove', (e) => {
-      if (!isDraggingWaveform) return;
-      state.waveformPreviewTime = waveformXToTime(e.clientX);
+      if (!waveformDragTarget) return;
+      if (waveformDragTarget === 'position') {
+        state.waveformPreviewTime = waveformXToTime(e.clientX);
+        return;
+      }
+      const time = waveformXToTime(e.clientX);
+      if (waveformDragTarget === 'loopStart') {
+        state.loopStart = clampLoopStart(time, state.loopEnd, LOOP_MIN_GAP_SEC);
+      } else if (waveformDragTarget === 'loopEnd') {
+        state.loopEnd = clampLoopEnd(time, state.loopStart, LOOP_MIN_GAP_SEC, state.audioBuffer.duration);
+      }
     });
 
     document.addEventListener('mouseup', () => {
-      if (!isDraggingWaveform) return;
-      isDraggingWaveform = false;
-      const time = state.waveformPreviewTime;
-      state.waveformPreviewTime = null;
-      seekTo(time);
+      if (!waveformDragTarget) return;
+      if (waveformDragTarget === 'position') {
+        const time = state.waveformPreviewTime;
+        state.waveformPreviewTime = null;
+        waveformDragTarget = null;
+        seekTo(time);
+        return;
+      }
+      waveformDragTarget = null;
+    });
+
+    document.getElementById('loopToggleBtn').addEventListener('click', () => {
+      if (!state.audioBuffer) return;
+      state.loopActive = !state.loopActive;
+      const btn = document.getElementById('loopToggleBtn');
+      if (state.loopActive) {
+        if (state.loopStart === null) {
+          state.loopStart = 0;
+          state.loopEnd = state.audioBuffer.duration;
+        }
+        state.loopEngaged = false;
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
     });
 
     async function play() {
       if (!state.audioBuffer) return;
-      const startFrom = state.pendingStartTime !== null
-        ? Math.min(state.pendingStartTime, state.audioBuffer.duration)
-        : 0;
+      const startFrom = state.loopActive
+        ? state.loopStart
+        : (state.pendingStartTime !== null ? Math.min(state.pendingStartTime, state.audioBuffer.duration) : 0);
       state.pendingStartTime = null;
+      state.loopEngaged = computeLoopEngaged(state.loopActive, startFrom, state.loopStart, state.loopEnd);
       if (state.audioContext.state === 'suspended') {
         await state.audioContext.resume();
       }
@@ -616,6 +714,7 @@
     function seekTo(time) {
       if (!state.audioBuffer) return;
       const clamped = Math.min(Math.max(time, 0), state.audioBuffer.duration);
+      state.loopEngaged = computeLoopEngaged(state.loopActive, clamped, state.loopStart, state.loopEnd);
 
       // resetNoteProgress() sets state.frozenTime = null as a side effect — it MUST run
       // before the "stopped" branch below sets frozenTime to the real seek position,
@@ -803,8 +902,8 @@
       const deltaSeconds = state.lastFrameTime === null ? 0 : now - state.lastFrameTime;
       state.lastFrameTime = now;
 
-      const currentTime = currentPlaybackTime();
-      const judgmentTime = currentTime - state.latencyOffsetSec;
+      let currentTime = currentPlaybackTime();
+      let judgmentTime = currentTime - state.latencyOffsetSec;
       let detectedFrequency = null;
       let peak = 0;
       if (state.voces[0]) {
@@ -826,6 +925,17 @@
         });
         if (nowAudio >= state.calibration.endTime) {
           finishCalibration();
+        }
+      }
+
+      if (state.loopActive && state.sourceNode) {
+        if (!state.loopEngaged && currentTime >= state.loopStart && currentTime < state.loopEnd) {
+          state.loopEngaged = true;
+        }
+        if (state.loopEngaged && currentTime >= state.loopEnd) {
+          seekTo(state.loopStart);
+          currentTime = currentPlaybackTime();
+          judgmentTime = currentTime - state.latencyOffsetSec;
         }
       }
 
