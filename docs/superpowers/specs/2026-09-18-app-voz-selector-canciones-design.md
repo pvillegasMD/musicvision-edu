@@ -47,13 +47,11 @@ Si falla la carga del WAV o el MIDI de la canción elegida, el error se muestra 
 
 Si falla el WAV, el MIDI, o ambos, aparece un botón **"Informar al profesor"** junto a los mensajes de error (uno solo, cubre cualquier combinación de fallas de esa canción — no uno por archivo).
 
-**Al apretarlo**: hace un `fetch()` `POST` a una URL de [Formspree](https://formspree.io) (el usuario crea la cuenta y el formulario por su cuenta, y entrega la URL — sin SDK de terceros, solo una llamada de red directa, consistente con que la app no depende de librerías externas). El envío incluye: id/título de la canción, qué archivo(s) fallaron (WAV, MIDI, o ambos) con su mensaje de error, y la fecha/hora.
+**Al apretarlo**: hace un `fetch()` `POST` a `https://formspree.io/f/xzezzqzd` (sin SDK de terceros, solo una llamada de red directa, consistente con que la app no depende de librerías externas). El envío incluye: id/título de la canción, qué archivo(s) fallaron (WAV, MIDI, o ambos) con su mensaje de error, y la fecha/hora.
 
 **Después de apretarlo**: el botón se deshabilita (ya no funciona como botón) pero mantiene el mismo tamaño y forma — el texto cambia a "Se le ha notificado al profesor".
 
 **Al elegir una canción nueva del menú**, cualquier error/botón de aviso previo se limpia — es un estado por intento de carga, no algo que persista entre canciones distintas.
-
-La URL de Formspree queda como el único dato pendiente antes de poder implementar esta sección — el resto del diseño no depende de ella.
 
 ## Fuera de alcance
 
