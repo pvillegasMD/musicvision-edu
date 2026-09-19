@@ -43,7 +43,21 @@ Los inputs manuales de `#midiInput`/`#wavInput` siguen visibles y funcionando si
 
 Si falla la carga del WAV o el MIDI de la canción elegida, el error se muestra en los mismos lugares donde ya se muestran los errores de carga manual (`#wavStatus`/`#midiStatus`).
 
+### 5. Aviso al profesor cuando falla una carga
+
+Si falla el WAV, el MIDI, o ambos, aparece un botón **"Informar al profesor"** junto a los mensajes de error (uno solo, cubre cualquier combinación de fallas de esa canción — no uno por archivo).
+
+**Al apretarlo**: hace un `fetch()` `POST` a una URL de [Formspree](https://formspree.io) (el usuario crea la cuenta y el formulario por su cuenta, y entrega la URL — sin SDK de terceros, solo una llamada de red directa, consistente con que la app no depende de librerías externas). El envío incluye: id/título de la canción, qué archivo(s) fallaron (WAV, MIDI, o ambos) con su mensaje de error, y la fecha/hora.
+
+**Después de apretarlo**: el botón se deshabilita (ya no funciona como botón) pero mantiene el mismo tamaño y forma — el texto cambia a "Se le ha notificado al profesor".
+
+**Al elegir una canción nueva del menú**, cualquier error/botón de aviso previo se limpia — es un estado por intento de carga, no algo que persista entre canciones distintas.
+
+La URL de Formspree queda como el único dato pendiente antes de poder implementar esta sección — el resto del diseño no depende de ella.
+
 ## Fuera de alcance
 
 - No hay agrupación ni filtro por curso en el menú — lista plana, cualquier alumno ve y puede elegir cualquier canción.
 - No hay una herramienta dentro de la app para agregar canciones — por ahora se agregan editando `canciones.json` y subiendo las carpetas a mano (vía git), no una interfaz de carga.
+- El botón "Informar al profesor" no existe para la falla de carga del instrumento (`instrumento-default.wav`) — queda acotado a fallas de WAV/MIDI de canciones. Podría extenderse más adelante si hace falta.
+- No hay ningún límite ni agrupación de notificaciones repetidas (por ejemplo, si varios alumnos distintos chocan con la misma canción rota) — cada click manda su propio aviso.
