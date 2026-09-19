@@ -418,6 +418,16 @@ sin arreglos de revisión final, la rama quedó limpia. Los 47 tests de Node pas
   duración de la nota). Un solo sample para todo el rango — pasar a varios samples
   repartidos (si el pitch-shift se nota artificial en notas muy alejadas de la
   referencia) queda como extensión aditiva futura, no un rediseño.
+- **`instrumento-default.wav`** (el mismo sample de coro confirmado por oído durante
+  el diseño, movido de `docs/superpowers/specs/` a la carpeta de la app) se carga
+  **solo al abrir la página** (`loadDefaultInstrument()`, un `fetch` + `decodeAudioData`
+  que corre una sola vez al iniciar) — ya no hace falta seleccionarlo a mano cada vez.
+  Sigue pudiéndose reemplazar por otro archivo con `#instrumentInput` en cualquier
+  momento. **Solo funciona si la app se abre desde un servidor (http/https)** —
+  `fetch` no funciona sobre `file://`, así que abriendo el `.html` con doble click
+  sigue haciendo falta cargar el instrumento a mano; el error se muestra en pantalla,
+  no rompe nada. El checkbox "Reproducir MIDI" sigue sin tildar por defecto — a
+  propósito, para que el usuario decida cada vez si quiere escuchar la guía.
 
 ## Características implementadas (post-roadmap: botón Detener + cambiador de octava)
 El roadmap original de 8 etapas se completó y mergeó (ver "Próximos pasos" más abajo).

@@ -530,6 +530,23 @@
       }
     });
 
+    async function loadDefaultInstrument() {
+      try {
+        const response = await fetch('./instrumento-default.wav');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        state.instrumentSample = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('instrumentStatus').textContent =
+          `Instrumento cargado: ${state.instrumentSample.duration.toFixed(2)}s`;
+      } catch (err) {
+        // Falla silenciosamente en file:// (fetch no funciona sin servidor) — el
+        // usuario siempre puede cargar un instrumento a mano con #instrumentInput.
+        document.getElementById('instrumentStatus').textContent =
+          'Sin instrumento cargado (cargalo a mano, o abrí la app desde un servidor para que se cargue solo).';
+      }
+    }
+    loadDefaultInstrument();
+
     document.getElementById('instrumentReferenceNote').addEventListener('input', (e) => {
       const value = parseInt(e.target.value, 10);
       if (Number.isFinite(value)) {
