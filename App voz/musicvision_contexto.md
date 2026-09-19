@@ -590,6 +590,50 @@ fuera de alcance de la etapa de forma de onda + seek:
   loop queda desarmado hasta que la reproducción vuelva a entrar en esa zona por
   su cuenta — mismo criterio que activar el loop desde afuera de la zona.
 
+## Características implementadas (post-roadmap: selector de canciones)
+(`docs/superpowers/specs/2026-09-18-app-voz-selector-canciones-design.md`,
+`docs/superpowers/plans/2026-09-18-app-voz-selector-canciones.md`) — pensado para
+cuando la app se publique como un solo link compartido en Google Classroom: un
+alumno de cualquier curso debe poder elegir y cantar cualquier canción subida, no
+solo la de su propio curso, sin buscar y cargar el WAV y el MIDI a mano.
+- **`song-catalog-utils.js`** (nuevo, funciones puras): `sortSongsByTitle(songs)`
+  (orden alfabético, sin mutar el array) y `buildFailureReport(titulo, errorWav,
+  errorMidi, timestamp)` (arma el contenido del aviso al profesor — el timestamp
+  se recibe como parámetro en vez de calcularse adentro, para mantener la función
+  pura y testeable).
+- **`canciones.json`** (nuevo manifiesto) + convención de carpetas
+  `App voz/canciones/<id>/` (con `pista.wav`/`guia.mid` adentro) — agregar una
+  canción nueva sin tocar HTML/JS es: crear la carpeta, poner los dos archivos,
+  sumar una entrada al JSON. Incluye una entrada `demo` de prueba (copia de los
+  fixtures de test) para que la app tenga algo real para cantar apenas se publica.
+- **`#songSelect`**: se llena solo al abrir la página (mismo patrón `fetch` que ya
+  usa el instrumento), ordenado alfabéticamente, con un placeholder fijo — no se
+  precarga ninguna canción sola. Elegir una reusa exactamente la misma lógica de
+  carga que ya usan `#wavInput`/`#midiInput` (duplicada a propósito, no compartida
+  — mismo criterio que el resto de la app), solo que alimentada por `fetch()` en
+  vez de un archivo elegido a mano. Los inputs manuales siguen funcionando sin
+  cambios, como respaldo.
+- **Botón "Informar al profesor"** (`#songNotifyBtn`): aparece solo si falla el
+  WAV y/o el MIDI de la canción elegida. Al apretarlo, manda un `POST` (sin SDK,
+  `fetch` directo) a un formulario de Formspree que el usuario armó por su cuenta
+  — el payload no incluye nombre ni curso del alumno, solo canción, qué archivo
+  falló, el mensaje de error, y la fecha/hora. Después de apretarlo, el botón se
+  deshabilita y cambia el texto a "Se le ha notificado al profesor", sin cambiar
+  de tamaño.
+- **Hallazgos de la revisión final (bugs reales de despliegue, no cosméticos):**
+  reproducidos en un escenario que no existía antes de esta etapa — wifi de
+  colegio, con fetches de varios MB en vez de lectura de un archivo local
+  instantánea. (1) Volver a elegir la misma canción que falló no disparaba el
+  evento `change` del `<select>` (el valor no cambiaba), así que no había forma
+  de reintentar sin recargar la página entera — se corrigió reseteando el
+  `<select>` al placeholder cuando falla, para que la próxima elección (incluso
+  la misma canción) vuelva a disparar el evento. (2) Si el alumno cambiaba de
+  canción rápido, antes de que la anterior terminara de cargar, una respuesta
+  vieja podía pisar el estado de una más nueva y dejar el botón de aviso visible
+  pero sin hacer nada al apretarlo — se agregó un número de secuencia
+  (`songRequestId`) que descarta cualquier resultado que ya quedó obsoleto antes
+  de escribir estado o tocar el DOM.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -862,6 +906,29 @@ fuera de alcance de la etapa de forma de onda + seek:
 - **`#loopToggleBtn` no tiene `aria-pressed`** — su estado activo/inactivo se
   distingue solo por color. Un candidato fácil de accesibilidad si se retoma este
   código.
+- **Sin timeout en los `fetch` del selector de canciones.** (Selector de
+  canciones) Si la conexión queda colgada (por ejemplo un portal cautivo de wifi
+  escolar), el `fetch` puede quedar pendiente indefinidamente — sin error, sin
+  botón de aviso, sin nada. Un `AbortSignal.timeout(...)` en ambos `fetch`
+  convertiría un cuelgue silencioso en una falla reportable.
+- **Los mensajes de error del selector de canciones pueden salir en inglés.**
+  (Selector de canciones) `err.message` de un `fetch` fallido suele ser texto
+  generado por el navegador ("Failed to fetch"), a diferencia de la carga manual
+  de archivos (que casi nunca falla así). Se ve en pantalla tal cual, sin
+  traducir. El mensaje crudo sigue siendo útil para el aviso al profesor — el
+  cambio sería solo en lo que ve el alumno.
+- **Sin validación del `canciones.json`** — un `id` repetido resuelve
+  silenciosamente a la primera coincidencia, y no se valida que cada entrada
+  tenga `id`/`titulo`/`wav`/`midi`. Como el flujo para agregar canciones es
+  editar el JSON a mano, un typo produce un comportamiento confuso en vez de un
+  error claro. Los `id` deben ser únicos — vale la pena tenerlo presente al
+  editar el archivo.
+- **Elegir una canción nueva del menú mientras otra está sonando no para la
+  reproducción anterior** — el audio viejo sigue sonando mientras el piano roll
+  ya muestra las notas de la canción nueva. Mismo problema preexistente que ya
+  tenía `#wavInput` (no es una regresión de esta etapa), pero el menú lo hace
+  mucho más fácil de disparar sin querer que el selector de archivos. Arreglarlo
+  bien implica tocar los dos caminos de carga a la vez — queda como cambio aparte.
 
 ## Próximos pasos
 El plan original del spec (6 etapas) se reordenó durante el diseño de la Etapa 4,
@@ -890,10 +957,12 @@ la Etapa 4, para poder revisar y tocar cada pieza por separado más adelante:
 Post-roadmap, ya con la app en uso real, se agregaron varias características más a
 pedido del usuario: ~~botón "Detener"~~ ✅, ~~cambiador de octava (voz
 masculina/bajo/barítono)~~ ✅, ~~informe de desempeño (datos + visual tipo
-sismógrafo)~~ ✅, ~~forma de onda + salto de posición~~ ✅, y ~~loop de
-práctica~~ ✅ — ver las secciones de características arriba. Con esto se completó
-el pedido original de "una barra de progreso + loops para estudio de algún
-pasaje" en dos etapas separadas.
+sismógrafo)~~ ✅, ~~forma de onda + salto de posición~~ ✅, ~~loop de
+práctica~~ ✅, ~~instrumento precargado al abrir~~ ✅, y ~~selector de
+canciones~~ ✅ — ver las secciones de características arriba. Con esto se
+completó el pedido original de "una barra de progreso + loops para estudio de
+algún pasaje" en dos etapas separadas, y quedó lista la base para publicar la
+app como un solo link compartido en Google Classroom.
 
 El diseño ya deja lugar para, más adelante: múltiples cantantes/tarjeta de sonido
 externa (modelado como un array de objetos "Voz", uno por fuente de audio), un
