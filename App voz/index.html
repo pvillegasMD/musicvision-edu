@@ -12,6 +12,7 @@
   button { background:#4a90d9; color:#fff; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:14px; }
   button:disabled { opacity:0.4; cursor:not-allowed; }
   button.active { background:#ff9800; }
+  #songNotifyBtn { min-width: 220px; }
   .mic-controls { display:flex; align-items:center; gap:12px; margin: 16px 0; flex-wrap:wrap; }
   #levelMeterTrack { width:220px; height:16px; background:#1a1d29; border-radius:4px; overflow:hidden; }
   #levelMeterBar { height:100%; width:0%; background:#3ecf6e; transition: width 0.05s linear, background-color 0.1s linear; }
@@ -529,11 +530,14 @@
       if (!songId) return;
       const song = state.songs.find((s) => s.id === songId);
       if (!song) return;
+      const myRequest = ++songRequestId;
 
       const notifyBtn = document.getElementById('songNotifyBtn');
       notifyBtn.hidden = true;
       notifyBtn.disabled = false;
       notifyBtn.textContent = 'Informar al profesor';
+      document.getElementById('wavStatus').textContent = `Cargando "${song.titulo}"...`;
+      document.getElementById('midiStatus').textContent = `Cargando "${song.titulo}"...`;
 
       let wavError = null;
       let midiError = null;
@@ -542,7 +546,9 @@
         const response = await fetch(song.wav);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
-        state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        const audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        if (myRequest !== songRequestId) return;
+        state.audioBuffer = audioBuffer;
         document.getElementById('wavStatus').textContent =
           `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
         const channelCount = state.audioBuffer.numberOfChannels;
@@ -564,6 +570,7 @@
         document.getElementById('loopToggleBtn').disabled = false;
         document.getElementById('loopToggleBtn').classList.remove('active');
       } catch (err) {
+        if (myRequest !== songRequestId) return;
         wavError = err.message || 'error desconocido';
         state.audioBuffer = null;
         state.waveformPeaks = [];
@@ -581,7 +588,9 @@
         const response = await fetch(song.midi);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const buffer = await response.arrayBuffer();
-        const { notes, durationSec, beats } = parseMidi(buffer);
+        const parsed = parseMidi(buffer);
+        if (myRequest !== songRequestId) return;
+        const { notes, durationSec, beats } = parsed;
         state.originalNotes = notes;
         state.notes = transposeNotes(notes, getSelectedSemitones());
         state.durationSec = durationSec;
@@ -594,6 +603,7 @@
           formatMidiStatusText(state.notes, durationSec);
         renderPianoRoll();
       } catch (err) {
+        if (myRequest !== songRequestId) return;
         midiError = err.message || 'error desconocido';
         state.notes = [];
         state.originalNotes = [];
@@ -607,9 +617,11 @@
         renderPianoRoll();
       }
 
+      if (myRequest !== songRequestId) return;
       if (wavError || midiError) {
         state.songLoadFailure = { song, wavError, midiError };
         notifyBtn.hidden = false;
+        e.target.selectedIndex = 0;
       } else {
         state.songLoadFailure = null;
       }
@@ -668,7 +680,7 @@
 
     async function loadSongCatalog() {
       try {
-        const response = await fetch('./canciones.json');
+        const response = await fetch('./canciones.json?v=' + Date.now());
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const songs = await response.json();
         state.songs = sortSongsByTitle(songs);
@@ -694,6 +706,7 @@
       }
     });
 
+    let songRequestId = 0;
     let waveformDragTarget = null;
 
     function waveformXToTime(clientX) {
