@@ -25,6 +25,11 @@
 <body>
   <h1>App voz — Etapa 1</h1>
   <div class="controls">
+    <label>Canción:
+      <select id="songSelect">
+        <option value="" selected disabled>Elige una canción...</option>
+      </select>
+    </label>
     <label>MIDI: <input type="file" id="midiInput" accept=".mid,.midi"></label>
     <label>Tipo de voz:
       <select id="voiceTypeSelect">
@@ -47,6 +52,7 @@
   <div id="status">
     <div id="midiStatus">Sin MIDI cargado.</div>
     <div id="wavStatus">Sin WAV cargado.</div>
+    <button id="songNotifyBtn" hidden>Informar al profesor</button>
     <div id="instrumentStatus">Sin instrumento cargado.</div>
     <div id="playbackStatus"></div>
   </div>
@@ -87,6 +93,7 @@
   <script src="./report-svg.js"></script>
   <script src="./waveform-utils.js"></script>
   <script src="./loop-utils.js"></script>
+  <script src="./song-catalog-utils.js"></script>
   <script>
     const state = {
       audioContext: new (window.AudioContext || window.webkitAudioContext)(),
@@ -118,6 +125,8 @@
       waveformPeaks: [],
       waveformPreviewTime: null,
       pendingStartTime: null,
+      songs: [],
+      songLoadFailure: null,
       loopActive: false,
       loopStart: null,
       loopEnd: null,
@@ -515,6 +524,116 @@
       renderWaveform();
     });
 
+    document.getElementById('songSelect').addEventListener('change', async (e) => {
+      const songId = e.target.value;
+      if (!songId) return;
+      const song = state.songs.find((s) => s.id === songId);
+      if (!song) return;
+
+      const notifyBtn = document.getElementById('songNotifyBtn');
+      notifyBtn.hidden = true;
+      notifyBtn.disabled = false;
+      notifyBtn.textContent = 'Informar al profesor';
+
+      let wavError = null;
+      let midiError = null;
+
+      try {
+        const response = await fetch(song.wav);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('wavStatus').textContent =
+          `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+        const channelCount = state.audioBuffer.numberOfChannels;
+        const channelData = [];
+        for (let ch = 0; ch < channelCount; ch++) {
+          channelData.push(state.audioBuffer.getChannelData(ch));
+        }
+        const monoSamples = new Float32Array(channelData[0].length);
+        for (let i = 0; i < monoSamples.length; i++) {
+          let sum = 0;
+          for (let ch = 0; ch < channelCount; ch++) sum += channelData[ch][i];
+          monoSamples[i] = sum / channelCount;
+        }
+        state.waveformPeaks = computeWaveformPeaks(monoSamples, WAVEFORM_WIDTH);
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = false;
+        document.getElementById('loopToggleBtn').classList.remove('active');
+      } catch (err) {
+        wavError = err.message || 'error desconocido';
+        state.audioBuffer = null;
+        state.waveformPeaks = [];
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = true;
+        document.getElementById('loopToggleBtn').classList.remove('active');
+        document.getElementById('wavStatus').textContent = `Error al cargar el WAV: ${wavError}`;
+      }
+      renderWaveform();
+
+      try {
+        const response = await fetch(song.midi);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        const { notes, durationSec, beats } = parseMidi(buffer);
+        state.originalNotes = notes;
+        state.notes = transposeNotes(notes, getSelectedSemitones());
+        state.durationSec = durationSec;
+        state.beats = beats;
+        resetNoteProgress();
+        state.lastReport = null;
+        state.pendingStartTime = null;
+        document.getElementById('viewReportBtn').disabled = true;
+        document.getElementById('midiStatus').textContent =
+          formatMidiStatusText(state.notes, durationSec);
+        renderPianoRoll();
+      } catch (err) {
+        midiError = err.message || 'error desconocido';
+        state.notes = [];
+        state.originalNotes = [];
+        state.durationSec = 0;
+        state.beats = [];
+        resetNoteProgress();
+        state.lastReport = null;
+        state.pendingStartTime = null;
+        document.getElementById('viewReportBtn').disabled = true;
+        document.getElementById('midiStatus').textContent = `Error al cargar el MIDI: ${midiError}`;
+        renderPianoRoll();
+      }
+
+      if (wavError || midiError) {
+        state.songLoadFailure = { song, wavError, midiError };
+        notifyBtn.hidden = false;
+      } else {
+        state.songLoadFailure = null;
+      }
+    });
+
+    document.getElementById('songNotifyBtn').addEventListener('click', async () => {
+      if (!state.songLoadFailure) return;
+      const btn = document.getElementById('songNotifyBtn');
+      btn.disabled = true;
+      const { song, wavError, midiError } = state.songLoadFailure;
+      const report = buildFailureReport(song.titulo, wavError, midiError, new Date().toISOString());
+      try {
+        await fetch('https://formspree.io/f/xzezzqzd', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(report)
+        });
+      } catch (err) {
+        // Sin forma de reintentar desde acá sin complicar la interfaz — el alumno
+        // ya hizo lo que podía hacer, así que igual mostramos la confirmación.
+      }
+      btn.textContent = 'Se le ha notificado al profesor';
+    });
+
     document.getElementById('instrumentInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -542,10 +661,31 @@
         // Falla silenciosamente en file:// (fetch no funciona sin servidor) — el
         // usuario siempre puede cargar un instrumento a mano con #instrumentInput.
         document.getElementById('instrumentStatus').textContent =
-          'Sin instrumento cargado (cargalo a mano, o abrí la app desde un servidor para que se cargue solo).';
+          'Sin instrumento cargado (cárgalo a mano, o abre la app desde un servidor para que se cargue solo).';
       }
     }
     loadDefaultInstrument();
+
+    async function loadSongCatalog() {
+      try {
+        const response = await fetch('./canciones.json');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const songs = await response.json();
+        state.songs = sortSongsByTitle(songs);
+        const select = document.getElementById('songSelect');
+        state.songs.forEach((song) => {
+          const option = document.createElement('option');
+          option.value = song.id;
+          option.textContent = song.titulo;
+          select.appendChild(option);
+        });
+      } catch (err) {
+        // Sin canciones.json (o inválido), el menú queda solo con el placeholder —
+        // los inputs manuales de MIDI/WAV siguen funcionando como respaldo.
+        state.songs = [];
+      }
+    }
+    loadSongCatalog();
 
     document.getElementById('instrumentReferenceNote').addEventListener('input', (e) => {
       const value = parseInt(e.target.value, 10);

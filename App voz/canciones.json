@@ -1,0 +1,8 @@
+[
+  {
+    "id": "demo",
+    "titulo": "Canción de prueba",
+    "wav": "canciones/demo/pista.wav",
+    "midi": "canciones/demo/guia.mid"
+  }
+]
