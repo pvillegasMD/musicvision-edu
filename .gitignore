@@ -2,3 +2,4 @@
 *.dmg
 *.pkg
 .worktrees
+.superpowers
