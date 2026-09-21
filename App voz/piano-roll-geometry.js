@@ -12,6 +12,16 @@ function pitchToY(pitch, minPitch, maxPitch, canvasHeight) {
   return canvasHeight * (maxPitch - pitch) / (maxPitch - minPitch);
 }
 
+function computeSemitoneGridLines(minPitch, maxPitch, canvasHeight) {
+  const lines = [];
+  const start = Math.ceil(minPitch);
+  const end = Math.floor(maxPitch);
+  for (let pitch = start; pitch <= end; pitch++) {
+    lines.push(pitchToY(pitch, minPitch, maxPitch, canvasHeight));
+  }
+  return lines;
+}
+
 function computeNoteRect(note, view) {
   const { currentTime, pixelsPerSecond, playheadX, minPitch, maxPitch, canvasHeight, rowHeight } = view;
   const x = playheadX + (note.start - currentTime) * pixelsPerSecond;
@@ -35,5 +45,5 @@ function shouldBreakLine(prevTime, nextTime, gapThresholdSec = 0.15) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pitchRange, pitchToY, computeNoteRect, desintegrationProgress, pitchPointX, shouldBreakLine };
+  module.exports = { pitchRange, pitchToY, computeNoteRect, desintegrationProgress, pitchPointX, shouldBreakLine, computeSemitoneGridLines };
 }

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { pitchRange, pitchToY, computeNoteRect, desintegrationProgress, pitchPointX, shouldBreakLine } = require('../piano-roll-geometry.js');
+const { pitchRange, pitchToY, computeNoteRect, desintegrationProgress, pitchPointX, shouldBreakLine, computeSemitoneGridLines } = require('../piano-roll-geometry.js');
 
 test('pitchRange pads the observed pitch range by 2 semitones', () => {
   const r = pitchRange([{ pitch: 60, start: 0, duration: 1 }, { pitch: 67, start: 1, duration: 1 }]);
@@ -63,4 +63,25 @@ test('shouldBreakLine is false within the default 150ms threshold, true beyond i
 test('shouldBreakLine respects a custom gap threshold', () => {
   assert.equal(shouldBreakLine(1, 1.3, 0.5), false);
   assert.equal(shouldBreakLine(1, 1.6, 0.5), true);
+});
+
+test('computeSemitoneGridLines returns one y-coordinate per integer semitone in range', () => {
+  const lines = computeSemitoneGridLines(58, 62, 200);
+  assert.equal(lines.length, 5);
+});
+
+test('computeSemitoneGridLines matches pitchToY for the first and last semitone', () => {
+  const lines = computeSemitoneGridLines(60, 64, 100);
+  assert.equal(lines[0], pitchToY(60, 60, 64, 100));
+  assert.equal(lines[lines.length - 1], pitchToY(64, 60, 64, 100));
+});
+
+test('computeSemitoneGridLines only includes integers within a fractional range', () => {
+  const lines = computeSemitoneGridLines(58.5, 61.5, 100);
+  assert.equal(lines.length, 3);
+});
+
+test('computeSemitoneGridLines returns an empty array when the range contains no integer', () => {
+  const lines = computeSemitoneGridLines(60.2, 60.8, 100);
+  assert.deepEqual(lines, []);
 });
