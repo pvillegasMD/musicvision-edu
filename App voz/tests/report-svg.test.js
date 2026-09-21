@@ -101,3 +101,15 @@ test('buildReportSvg still draws the no-signal note fill when the note had no si
   const svg = buildReportSvg(notes, noteProgress, [], OPTIONS, geometryFns);
   assert.ok(svg.includes(`fill="${OPTIONS.colors.noSignal}"`));
 });
+
+test('buildReportSvg draws one vertical grid line per beat, aligned via pitchPointX', () => {
+  const round2 = (value) => Math.round(value * 100) / 100;
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
+  const noteProgress = [{ hadSignal: true, timeInTune: 1, timeTotal: 1 }];
+  const optionsWithBeats = { ...OPTIONS, beats: [0, 0.5, 1] };
+  const svg = buildReportSvg(notes, noteProgress, [], optionsWithBeats, geometryFns);
+  const actualLines = (svg.match(/class="grid-beat"/g) || []).length;
+  assert.equal(actualLines, 3);
+  const expectedX = round2(geometryFns.pitchPointX(0.5, 0, optionsWithBeats.pixelsPerSecond, 0));
+  assert.ok(svg.includes(`x1="${expectedX}"`));
+});
