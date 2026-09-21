@@ -643,25 +643,28 @@ mejorar la legibilidad visual sin cambiar la lógica musical del sistema:
   mantienen propositivamente su fondo oscuro original `#1a1d29`, creando un
   contraste visual que enfatiza el piano roll como el punto de acción mientras el
   resto de la UI permanece clara y accesible.
-- **Controles agrupados en tres `<fieldset>` colapsables:** La estructura del
-  `<form>` se reorganizó en Canción, Reproducción y Micrófono. Los inputs que rara
-  vez se usan — carga manual de MIDI/WAV, tipo de voz, instrumento y nota de
-  referencia — se colapsan detrás de `<details>/<summary>` nativos, dejando visible
-  solo los controles frecuentes: selector de canciones, play/stop/seek sobre la forma
-  de onda, loop, metrónomo, y activación de micrófono.
+- **Controles organizados en tres secciones `<div class="section">`:** La estructura
+  de HTML se divide en tres secciones (Canción, Reproducción, Micrófono), cada una un
+  `<div class="section">` con encabezado y fila de controles. Dentro de la sección
+  Canción, un único `<details class="manual-inputs">` colapsa los inputs que rara vez
+  se usan — carga manual de MIDI/WAV, tipo de voz, instrumento y nota de referencia —
+  dejando visible el selector de canciones del catálogo. Las secciones Reproducción y
+  Micrófono no son colapsibles; todos sus controles quedan siempre visibles.
 - **Banner de finalización reemplaza el botón "Ver informe" permanente:**
   `#completionBanner` aparece únicamente tras terminar una reproducción (fin natural,
   "Detener", o auto-stop por silencio), mostrando el porcentaje de notas afinadas.
   Desaparece al iniciar una nueva reproducción. Las funciones `showCompletionBanner()`
   y `hideCompletionBanner()` manejan su visibilidad. Un `disabled = false` dentro de
-  `showCompletionBanner()` re-habilita el botón Reproducir, que de otro modo quedaba
-  sin reactivarse.
-- **Grilla de semitonos/pulsos y borde en cada nota:** `computeSemitoneGridLines` en
-  `piano-roll-geometry.js` calcula líneas para cada semitono (horizontal) y pulso MIDI
-  (vertical), reutilizándose en `renderPianoRoll()` (canvas en vivo) y
-  `buildReportSvg()` (informe estático) para consistencia visual. Cada rectángulo de
-  nota ahora tiene un borde fino (`COLOR_NOTE_BORDER`, nueva property en `:root`),
-  aplicado uniformemente en el render en vivo y el SVG descargable.
+  `showCompletionBanner()` re-habilita el botón `#viewReportBtn` ("Ver informe"),
+  que de otro modo quedaba deshabilitado.
+- **Grilla de semitonos y pulsos con borde en cada nota:** `computeSemitoneGridLines`
+  en `piano-roll-geometry.js` calcula líneas horizontales para cada semitono; las
+  líneas verticales de pulsos MIDI se calculan separadamente usando `pitchPointX()` y
+  `state.beats` en `renderPianoRoll()` (en vivo) y `buildReportSvg()` (informe
+  estático), reutilizando la función de geometría en ambos casos para garantizar
+  consistencia visual. Cada rectángulo de nota ahora tiene un borde fino
+  (`COLOR_NOTE_BORDER`, una JS `const` definida como `'rgba(0,0,0,0.28)'`), aplicado
+  uniformemente en el render en vivo y el SVG descargable del informe.
 
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
