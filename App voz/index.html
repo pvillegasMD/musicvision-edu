@@ -40,6 +40,8 @@
   .report-controls h2 { margin:0; font-size:16px; }
   #reportSvgContainer { overflow-x:auto; background:#1a1d29; border-radius:8px; max-width:900px; }
   #reportTextView { background:#fff; border:1px solid var(--color-border); color:var(--color-text); padding:12px; border-radius:8px; max-width:900px; overflow-x:auto; white-space:pre-wrap; margin-top:12px; font-size:13px; }
+  #completionBanner { max-width:900px; background:#fff3e8; border:1px solid #f0d3ae; color:#8a5a2c; border-radius:8px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  #completionBanner button { padding:6px 14px; }
 </style>
 </head>
 <body>
@@ -78,7 +80,6 @@
       <button id="playBtn" class="primary">Reproducir</button>
       <button id="stopBtn">Detener</button>
       <button id="loopToggleBtn" disabled>Loop</button>
-      <button id="viewReportBtn" disabled>Ver informe</button>
       <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
       <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
       <label><input type="checkbox" id="playMidiCheckbox"> Reproducir MIDI</label>
@@ -107,6 +108,11 @@
   </div>
   <canvas id="waveformCanvas" width="900" height="60"></canvas>
   <canvas id="pianoRoll" width="900" height="240"></canvas>
+
+  <div id="completionBanner" hidden>
+    <span id="completionBannerText"></span>
+    <button id="viewReportBtn" class="primary">Ver informe</button>
+  </div>
 
   <div id="reportPanel" class="section" hidden>
     <div class="report-controls">
@@ -880,6 +886,7 @@
       state.lastSignalTime = startFrom;
       document.getElementById('playbackStatus').textContent = '';
       document.getElementById('reportPanel').hidden = true;
+      hideCompletionBanner();
       document.getElementById('voiceTypeSelect').disabled = true;
       startSourceAt(startFrom);
     }
@@ -1006,8 +1013,19 @@
         { pitchRange, computeNoteRect, pitchToY, pitchPointX, shouldBreakLine, computeSemitoneGridLines }
       );
       state.lastReport = { stats, text, svg };
+      showCompletionBanner();
+    }
+
+    function showCompletionBanner() {
+      if (!state.lastReport) return;
+      const pct = Math.round(state.lastReport.stats.inTunePercent);
+      document.getElementById('completionBannerText').textContent = `Terminaste — ${pct}% afinado.`;
       document.getElementById('viewReportBtn').disabled = false;
-      showReport();
+      document.getElementById('completionBanner').hidden = false;
+    }
+
+    function hideCompletionBanner() {
+      document.getElementById('completionBanner').hidden = true;
     }
 
     function showReport() {
