@@ -9,7 +9,15 @@ const OPTIONS = {
   height: 240,
   gapThresholdSec: 0.15,
   durationSec: 0,
-  colors: { inTune: '#3ecf6e', outOfTune: '#e05a4e', noSignal: '#6b7280', pitchLine: '#f5d90a' }
+  colors: {
+    inTune: '#3ecf6e',
+    outOfTune: '#e05a4e',
+    noSignal: '#6b7280',
+    pitchLine: '#f5d90a',
+    gridRow: 'rgba(255,255,255,0.04)',
+    gridBeat: 'rgba(255,255,255,0.05)',
+    noteBorder: 'rgba(0,0,0,0.28)'
+  }
 };
 
 test('buildReportSvg returns an svg root element sized to the song duration', () => {
@@ -68,4 +76,28 @@ test('buildReportSvg widens the SVG to cover options.durationSec when it exceeds
   const noteProgress = [{ timeInTune: 1, timeTotal: 1, hadSignal: true }];
   const svg = buildReportSvg(notes, noteProgress, [], { ...OPTIONS, durationSec: 5 }, geometryFns);
   assert.match(svg, /width="500"/); // 5s * 100px/s, not 1s * 100px/s = 100
+});
+
+test('buildReportSvg draws one horizontal grid line per semitone in the note range', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
+  const noteProgress = [{ hadSignal: true, timeInTune: 1, timeTotal: 1 }];
+  const svg = buildReportSvg(notes, noteProgress, [], OPTIONS, geometryFns);
+  const { minPitch, maxPitch } = geometryFns.pitchRange(notes);
+  const expectedLines = geometryFns.computeSemitoneGridLines(minPitch, maxPitch, OPTIONS.height).length;
+  const actualLines = (svg.match(/class="grid-row"/g) || []).length;
+  assert.equal(actualLines, expectedLines);
+});
+
+test('buildReportSvg draws each note rect with a border stroke', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
+  const noteProgress = [{ hadSignal: true, timeInTune: 1, timeTotal: 1 }];
+  const svg = buildReportSvg(notes, noteProgress, [], OPTIONS, geometryFns);
+  assert.ok(svg.includes(`stroke="${OPTIONS.colors.noteBorder}"`));
+});
+
+test('buildReportSvg still draws the no-signal note fill when the note had no signal', () => {
+  const notes = [{ pitch: 60, start: 0, duration: 1 }];
+  const noteProgress = [{ hadSignal: false, timeInTune: 0, timeTotal: 0 }];
+  const svg = buildReportSvg(notes, noteProgress, [], OPTIONS, geometryFns);
+  assert.ok(svg.includes(`fill="${OPTIONS.colors.noSignal}"`));
 });
