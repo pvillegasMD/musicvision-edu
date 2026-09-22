@@ -4,11 +4,5 @@
     "titulo": "Three Little Birds",
     "wav": "canciones/three-little-birds/pista.wav",
     "midi": "canciones/three-little-birds/guia.mid"
-  },
-  {
-    "id": "lovefool",
-    "titulo": "Lovefool",
-    "wav": "canciones/lovefool/pista.wav",
-    "midi": "canciones/lovefool/guia.mid"
   }
 ]
