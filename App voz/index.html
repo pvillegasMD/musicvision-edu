@@ -1,0 +1,1295 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>App voz — Piano roll de canto</title>
+<style>
+  :root {
+    --color-bg: #fbf9f5;
+    --color-text: #2b2420;
+    --color-text-muted: #a8886a;
+    --color-border: #eee2d3;
+    --color-border-input: #e3d8c8;
+    --color-accent-1: #d16f37;
+    --color-accent-2: #b8571f;
+    --color-accent-shadow: #8a4416;
+    --color-secondary-text: #8a7a68;
+    --color-secondary-shadow: #e3d8c8;
+  }
+  body { background:var(--color-bg); color:var(--color-text); font-family: system-ui, sans-serif; margin:0; padding:24px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  .section { background:#fff; border:1px solid var(--color-border); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+  .section-label { font-size:12px; text-transform:uppercase; letter-spacing:0.04em; font-weight:600; color:var(--color-text-muted); margin-bottom:10px; }
+  .section-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  #status { font-size:14px; opacity:0.8; margin-bottom:12px; line-height:1.6; }
+  #pianoRoll { width:100%; max-width:900px; height:240px; background:#1a1d29; border-radius:8px; display:block; }
+  #waveformCanvas { width:100%; max-width:900px; height:60px; background:#1a1d29; border-radius:8px; display:block; margin-bottom:12px; cursor:pointer; }
+  button { background:#fff; color:var(--color-secondary-text); border:none; padding:9px 16px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; box-shadow: 0 3px 0 var(--color-secondary-shadow); }
+  button:disabled { opacity:0.4; cursor:not-allowed; box-shadow:none; }
+  button.primary { background:linear-gradient(180deg, var(--color-accent-1), var(--color-accent-2)); color:#fff; box-shadow: 0 3px 0 var(--color-accent-shadow), 0 5px 10px rgba(139,68,22,0.25); }
+  button.active { background:var(--color-accent-1); color:#fff; box-shadow: 0 3px 0 var(--color-accent-shadow); }
+  #songNotifyBtn { min-width: 220px; }
+  #levelMeterTrack { width:220px; height:16px; background:var(--color-bg); border:1px solid var(--color-border-input); border-radius:4px; overflow:hidden; }
+  #levelMeterBar { height:100%; width:0%; background:#3ecf6e; transition: width 0.05s linear, background-color 0.1s linear; }
+  input[type="range"] { width:160px; }
+  select, input[type="file"], input[type="number"] { border:1px solid var(--color-border-input); border-radius:6px; padding:6px 10px; font-size:13px; background:#fff; color:var(--color-text); }
+  details.manual-inputs { margin-top:10px; font-size:13px; }
+  details.manual-inputs summary { cursor:pointer; color:var(--color-text-muted); }
+  details.manual-inputs .section-row { margin-top:10px; }
+  .report-controls { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+  .report-controls h2 { margin:0; font-size:16px; }
+  #reportSvgContainer { overflow-x:auto; background:#1a1d29; border-radius:8px; max-width:900px; }
+  #reportTextView { background:#fff; border:1px solid var(--color-border); color:var(--color-text); padding:12px; border-radius:8px; max-width:900px; overflow-x:auto; white-space:pre-wrap; margin-top:12px; font-size:13px; }
+  #completionBanner { max-width:900px; background:#fff3e8; border:1px solid #f0d3ae; color:#8a5a2c; border-radius:8px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  #completionBanner[hidden] { display:none; }
+  #completionBanner button { padding:6px 14px; }
+</style>
+</head>
+<body>
+  <h1>App voz</h1>
+
+  <div class="section">
+    <div class="section-label">Canción</div>
+    <div class="section-row">
+      <label>Canción:
+        <select id="songSelect">
+          <option value="" selected disabled>Elige una canción...</option>
+        </select>
+      </label>
+    </div>
+    <details class="manual-inputs">
+      <summary>Cargar archivos manualmente ▾</summary>
+      <div class="section-row">
+        <label>MIDI: <input type="file" id="midiInput" accept=".mid,.midi"></label>
+        <label>Tipo de voz:
+          <select id="voiceTypeSelect">
+            <option value="0" selected>Original (sin transportar)</option>
+            <option value="-12">Voz masculina (-1 octava)</option>
+            <option value="-24">Bajo/Barítono (-2 octavas)</option>
+          </select>
+        </label>
+        <label>WAV: <input type="file" id="wavInput" accept=".wav"></label>
+        <label>Instrumento: <input type="file" id="instrumentInput" accept=".wav"></label>
+        <label>Nota de referencia: <input type="number" id="instrumentReferenceNote" min="0" max="127" value="60"></label>
+      </div>
+    </details>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Reproducción</div>
+    <div class="section-row">
+      <button id="playBtn" class="primary">Reproducir</button>
+      <button id="stopBtn">Detener</button>
+      <button id="loopToggleBtn" disabled>Loop</button>
+      <label><input type="checkbox" id="muteWavCheckbox"> Silenciar pista</label>
+      <label><input type="checkbox" id="metronomeCheckbox"> Metrónomo</label>
+      <label><input type="checkbox" id="playMidiCheckbox"> Reproducir MIDI</label>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Micrófono</div>
+    <div class="section-row">
+      <button id="micBtn">Activar micrófono</button>
+      <label>Ganancia: <input type="range" id="micGain" min="0" max="2" step="0.01" value="1" disabled></label>
+      <div id="levelMeterTrack"><div id="levelMeterBar"></div></div>
+      <button id="calibrateBtn" disabled>Calibrar latencia</button>
+    </div>
+  </div>
+
+  <div id="status">
+    <div id="midiStatus">Sin MIDI cargado.</div>
+    <div id="wavStatus">Sin WAV cargado.</div>
+    <button id="songNotifyBtn" hidden>Informar al profesor</button>
+    <div id="instrumentStatus">Sin instrumento cargado.</div>
+    <div id="playbackStatus"></div>
+    <div id="micStatus">Micrófono no activado.</div>
+    <div id="pitchDisplay">Nota detectada: —</div>
+    <div id="latencyStatus">Latencia: sin calibrar.</div>
+  </div>
+  <canvas id="waveformCanvas" width="900" height="60"></canvas>
+  <canvas id="pianoRoll" width="900" height="240"></canvas>
+
+  <div id="completionBanner" hidden>
+    <span id="completionBannerText"></span>
+    <button id="viewReportBtn" class="primary">Ver informe</button>
+  </div>
+
+  <div id="reportPanel" class="section" hidden>
+    <div class="report-controls">
+      <h2>Informe de desempeño</h2>
+      <button id="reportScrollLeftBtn">◀</button>
+      <button id="reportScrollRightBtn">▶</button>
+      <button id="downloadTxtBtn">Descargar informe (.txt)</button>
+      <button id="downloadSvgBtn">Descargar informe (.svg)</button>
+      <button id="closeReportBtn">Cerrar</button>
+    </div>
+    <div id="reportSvgContainer"></div>
+    <pre id="reportTextView"></pre>
+  </div>
+
+  <script src="./midi-parser.js"></script>
+  <script src="./piano-roll-geometry.js"></script>
+  <script src="./audio-level.js"></script>
+  <script src="./pitch-detection.js"></script>
+  <script src="./note-utils.js"></script>
+  <script src="./note-tuning.js"></script>
+  <script src="./silence-guard.js"></script>
+  <script src="./latency-calibration.js"></script>
+  <script src="./report-utils.js"></script>
+  <script src="./report-svg.js"></script>
+  <script src="./waveform-utils.js"></script>
+  <script src="./loop-utils.js"></script>
+  <script src="./song-catalog-utils.js"></script>
+  <script>
+    const state = {
+      audioContext: new (window.AudioContext || window.webkitAudioContext)(),
+      audioBuffer: null,
+      notes: [],
+      originalNotes: [],
+      durationSec: 0,
+      sourceNode: null,
+      playStartTime: 0,
+      voces: [],
+      noteProgress: [],
+      lastFrameTime: null,
+      activeNoteIndex: null,
+      activeNoteColor: null,
+      lastActiveNoteIndex: null,
+      lastActiveNoteColor: null,
+      frozenTime: null,
+      beats: [],
+      metronomeNodes: [],
+      lastSignalTime: 0,
+      pitchHistory: [],
+      fullPitchHistory: [],
+      latencyOffsetSec: 0,
+      calibration: null,
+      instrumentSample: null,
+      instrumentReferenceMidi: 60,
+      instrumentNodes: [],
+      lastReport: null,
+      waveformPeaks: [],
+      waveformPreviewTime: null,
+      pendingStartTime: null,
+      songs: [],
+      songLoadFailure: null,
+      loopActive: false,
+      loopStart: null,
+      loopEnd: null,
+      loopEngaged: false
+    };
+
+    let storedLatencyOffset = NaN;
+    try {
+      storedLatencyOffset = parseFloat(localStorage.getItem('appVozLatencyOffsetSec'));
+    } catch (err) {
+      // localStorage no disponible (bloqueado, origen file://, etc.) — seguimos sin calibrar.
+    }
+    if (Number.isFinite(storedLatencyOffset)) {
+      state.latencyOffsetSec = storedLatencyOffset;
+      updateLatencyStatusDisplay();
+    }
+
+    state.wavGainNode = state.audioContext.createGain();
+    state.wavGainNode.connect(state.audioContext.destination);
+    state.wavGainNode.gain.value = document.getElementById('muteWavCheckbox').checked ? 0 : 1;
+
+    const PIXELS_PER_SECOND = 150;
+    const PLAYHEAD_X = 120;
+    const ROW_HEIGHT = 18;
+    const COLOR_UPCOMING = '#4a90d9';
+    const COLOR_IN_TUNE = '#3ecf6e';
+    const COLOR_OUT_OF_TUNE = '#e05a4e';
+    const COLOR_NO_SIGNAL = '#6b7280';
+    const SCROLL_OUT_DURATION_SEC = PLAYHEAD_X / PIXELS_PER_SECOND;
+    const DESINTEGRATION_MIN_OPACITY = 0.15;
+    const DESINTEGRATION_MIN_SCALE = 0.6;
+    const SILENCE_STOP_BEATS = 8;
+    const CANVAS_WIDTH = document.getElementById('pianoRoll').width;
+    const MAX_PITCH_HISTORY_SEC = (PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND;
+    const PITCH_LINE_GAP_SEC = 0.15;
+    const COLOR_PITCH_LINE = '#f5d90a';
+    const CALIBRATION_TRIALS = 4;
+    const CALIBRATION_INTERVAL_SEC = 1.0;
+    const CALIBRATION_WINDOW_SEC = 0.9;
+    const CALIBRATION_DEAD_ZONE_SEC = 0.05;
+    const INSTRUMENT_FADE_SEC = 0.02;
+    const CANVAS_HEIGHT = document.getElementById('pianoRoll').height;
+    const REPORT_SCROLL_STEP = 300;
+    const WAVEFORM_WIDTH = document.getElementById('waveformCanvas').width;
+    const COLOR_WAVEFORM = '#4a90d9';
+    const COLOR_LOOP_MARKER = '#ff9800';
+    const LOOP_MIN_GAP_SEC = 0.1;
+    const LOOP_MARKER_HIT_TOLERANCE_PX = 8;
+    const LOOP_MARKER_TRIANGLE_SIZE = 8;
+    const COLOR_GRID_ROW = 'rgba(255,255,255,0.04)';
+    const COLOR_GRID_BEAT = 'rgba(255,255,255,0.05)';
+    const COLOR_NOTE_BORDER = 'rgba(0,0,0,0.28)';
+    const NOTE_BORDER_WIDTH = 1.5;
+
+    function createVoz(stream, audioContext) {
+      const source = audioContext.createMediaStreamSource(stream);
+      const gainNode = audioContext.createGain();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(gainNode);
+      gainNode.connect(analyser);
+      const byteBuffer = new Uint8Array(analyser.fftSize);
+      const floatBuffer = new Float32Array(analyser.fftSize);
+      return {
+        stream,
+        source,
+        gainNode,
+        analyser,
+        setGain(value) {
+          gainNode.gain.value = value;
+        },
+        getLevel() {
+          analyser.getByteTimeDomainData(byteBuffer);
+          return computeLevel(byteBuffer);
+        },
+        getPitch() {
+          analyser.getFloatTimeDomainData(floatBuffer);
+          return detectPitch(floatBuffer, audioContext.sampleRate);
+        }
+      };
+    }
+
+    function resetNoteProgress() {
+      state.noteProgress = state.notes.map(() => ({ timeInTune: 0, timeTotal: 0, hadSignal: false, firstSignalTime: null }));
+      state.activeNoteIndex = null;
+      state.activeNoteColor = null;
+      state.lastActiveNoteIndex = null;
+      state.lastActiveNoteColor = null;
+      state.frozenTime = null;
+      state.pitchHistory = [];
+      state.fullPitchHistory = [];
+    }
+
+    function getSelectedSemitones() {
+      const select = document.getElementById('voiceTypeSelect');
+      const value = parseInt(select.value, 10);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function getSelectedVoiceTypeLabel() {
+      const select = document.getElementById('voiceTypeSelect');
+      return select.options[select.selectedIndex].textContent;
+    }
+
+    function formatMidiStatusText(notes, durationSec) {
+      if (!notes.length) return 'Sin MIDI cargado.';
+      const label = getSelectedVoiceTypeLabel();
+      const { minPitch, maxPitch } = pitchRange(notes);
+      const rangeText = `${midiToNoteName(minPitch)}–${midiToNoteName(maxPitch)}`;
+      return `MIDI cargado: ${notes.length} notas, duración ${durationSec.toFixed(2)}s — ${label}, rango ${rangeText}`;
+    }
+
+    function currentPlaybackTime() {
+      if (state.sourceNode) {
+        return state.audioContext.currentTime - state.playStartTime;
+      }
+      return state.frozenTime !== null ? state.frozenTime : 0;
+    }
+
+    function hasMic() {
+      return state.voces.length > 0;
+    }
+
+    function renderPianoRoll() {
+      const canvas = document.getElementById('pianoRoll');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const { minPitch, maxPitch } = pitchRange(state.notes);
+      const currentTime = currentPlaybackTime();
+      const view = {
+        currentTime,
+        pixelsPerSecond: PIXELS_PER_SECOND,
+        playheadX: PLAYHEAD_X,
+        minPitch, maxPitch,
+        canvasHeight: canvas.height,
+        rowHeight: ROW_HEIGHT
+      };
+
+      ctx.strokeStyle = COLOR_GRID_ROW;
+      ctx.beginPath();
+      computeSemitoneGridLines(minPitch, maxPitch, canvas.height).forEach((y) => {
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+      });
+      ctx.stroke();
+
+      ctx.strokeStyle = COLOR_GRID_BEAT;
+      ctx.beginPath();
+      state.beats.forEach((beatTime) => {
+        const x = pitchPointX(beatTime, currentTime, PIXELS_PER_SECOND, PLAYHEAD_X);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+      });
+      ctx.stroke();
+
+      const isLive = state.sourceNode !== null;
+
+      ctx.lineWidth = NOTE_BORDER_WIDTH;
+      state.notes.forEach((note, i) => {
+        const rect = computeNoteRect(note, view);
+
+        if (!hasMic()) {
+          ctx.fillStyle = COLOR_UPCOMING;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          ctx.strokeStyle = COLOR_NOTE_BORDER;
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+          ctx.strokeStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(rect.x, rect.y + rect.height / 2);
+          ctx.lineTo(rect.x + rect.width, rect.y + rect.height / 2);
+          ctx.stroke();
+          return;
+        }
+
+        const status = noteStatus(note, currentTime);
+
+        if (status === 'active' && isLive) {
+          const color = i === state.activeNoteIndex ? state.activeNoteColor : 'no-signal';
+          ctx.fillStyle =
+            color === 'in-tune' ? COLOR_IN_TUNE :
+            color === 'out-of-tune' ? COLOR_OUT_OF_TUNE :
+            COLOR_NO_SIGNAL;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          ctx.strokeStyle = COLOR_NOTE_BORDER;
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        } else if (status !== 'past') {
+          ctx.fillStyle = COLOR_UPCOMING;
+          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          ctx.strokeStyle = COLOR_NOTE_BORDER;
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        } else if (!noteWasSung(state.noteProgress[i])) {
+          const noteEndTime = note.start + note.duration;
+          const progress = desintegrationProgress(currentTime, noteEndTime, SCROLL_OUT_DURATION_SEC);
+          const opacity = 1 - progress * (1 - DESINTEGRATION_MIN_OPACITY);
+          const scale = 1 - progress * (1 - DESINTEGRATION_MIN_SCALE);
+          const scaledWidth = rect.width * scale;
+          const scaledHeight = rect.height * scale;
+          const scaledX = rect.x + (rect.width - scaledWidth) / 2;
+          const scaledY = rect.y + (rect.height - scaledHeight) / 2;
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.fillStyle = COLOR_OUT_OF_TUNE;
+          ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
+          ctx.strokeStyle = COLOR_NOTE_BORDER;
+          ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
+          ctx.restore();
+        } else {
+          const ratio = tuningRatio(state.noteProgress[i]);
+          const greenWidth = rect.width * ratio;
+          ctx.fillStyle = COLOR_IN_TUNE;
+          ctx.fillRect(rect.x, rect.y, greenWidth, rect.height);
+          ctx.fillStyle = COLOR_OUT_OF_TUNE;
+          ctx.fillRect(rect.x + greenWidth, rect.y, rect.width - greenWidth, rect.height);
+          ctx.strokeStyle = COLOR_NOTE_BORDER;
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        }
+      });
+      ctx.lineWidth = 1;
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(PLAYHEAD_X, 0);
+      ctx.lineTo(PLAYHEAD_X, canvas.height);
+      ctx.stroke();
+
+      if (state.pitchHistory.length > 0) {
+        ctx.strokeStyle = COLOR_PITCH_LINE;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        state.pitchHistory.forEach((point, i) => {
+          const x = pitchPointX(point.time, currentTime, PIXELS_PER_SECOND, PLAYHEAD_X);
+          const y = pitchToY(point.pitch, minPitch, maxPitch, canvas.height);
+          if (i === 0 || shouldBreakLine(state.pitchHistory[i - 1].time, point.time, PITCH_LINE_GAP_SEC)) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+
+    function renderWaveform() {
+      const canvas = document.getElementById('waveformCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const midY = canvas.height / 2;
+      ctx.strokeStyle = COLOR_WAVEFORM;
+      ctx.beginPath();
+      state.waveformPeaks.forEach((peak, x) => {
+        const yTop = midY - peak.max * midY;
+        const yBottom = midY - peak.min * midY;
+        ctx.moveTo(x + 0.5, yTop);
+        ctx.lineTo(x + 0.5, yBottom);
+      });
+      ctx.stroke();
+
+      const duration = state.audioBuffer ? state.audioBuffer.duration : 0;
+      if (duration > 0) {
+        const displayTime = state.waveformPreviewTime !== null ? state.waveformPreviewTime : currentPlaybackTime();
+        const x = (displayTime / duration) * canvas.width;
+        ctx.strokeStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+
+      if (state.loopActive && state.loopStart !== null && state.loopEnd !== null && duration > 0) {
+        const startX = (state.loopStart / duration) * canvas.width;
+        const endX = (state.loopEnd / duration) * canvas.width;
+
+        ctx.strokeStyle = COLOR_LOOP_MARKER;
+        ctx.beginPath();
+        ctx.moveTo(startX, 0);
+        ctx.lineTo(startX, canvas.height);
+        ctx.moveTo(endX, 0);
+        ctx.lineTo(endX, canvas.height);
+        ctx.stroke();
+
+        ctx.fillStyle = COLOR_LOOP_MARKER;
+        ctx.beginPath();
+        ctx.moveTo(startX, 0);
+        ctx.lineTo(startX, LOOP_MARKER_TRIANGLE_SIZE);
+        ctx.lineTo(startX + LOOP_MARKER_TRIANGLE_SIZE, LOOP_MARKER_TRIANGLE_SIZE / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(endX, 0);
+        ctx.lineTo(endX, LOOP_MARKER_TRIANGLE_SIZE);
+        ctx.lineTo(endX - LOOP_MARKER_TRIANGLE_SIZE, LOOP_MARKER_TRIANGLE_SIZE / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    function playSuccessBlip(audioContext) {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start();
+      osc.stop(audioContext.currentTime + 0.16);
+    }
+
+    function playMetronomeClick(audioContext, when) {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 1000;
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(0.15, when + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.03);
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.start(when);
+      osc.stop(when + 0.04);
+      return osc;
+    }
+
+    function playInstrumentNote(audioContext, buffer, playbackRate, when, durationSec) {
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = playbackRate;
+      const gain = audioContext.createGain();
+      source.connect(gain);
+      gain.connect(audioContext.destination);
+      const stopTime = when + durationSec;
+      const fadeStart = Math.max(when, stopTime - INSTRUMENT_FADE_SEC);
+      gain.gain.setValueAtTime(1, fadeStart);
+      gain.gain.linearRampToValueAtTime(0.0001, stopTime);
+      source.start(when);
+      source.stop(stopTime + 0.01);
+      return source;
+    }
+
+    renderPianoRoll();
+    renderWaveform();
+    requestAnimationFrame(mainLoop);
+
+    document.getElementById('midiInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const buffer = await file.arrayBuffer();
+        const { notes, durationSec, beats } = parseMidi(buffer);
+        state.originalNotes = notes;
+        state.notes = transposeNotes(notes, getSelectedSemitones());
+        state.durationSec = durationSec;
+        state.beats = beats;
+        resetNoteProgress();
+        state.lastReport = null;
+        state.pendingStartTime = null;
+        document.getElementById('viewReportBtn').disabled = true;
+        hideCompletionBanner();
+        document.getElementById('midiStatus').textContent =
+          formatMidiStatusText(state.notes, durationSec);
+        renderPianoRoll();
+      } catch (err) {
+        state.notes = [];
+        state.originalNotes = [];
+        state.durationSec = 0;
+        state.beats = [];
+        resetNoteProgress();
+        state.lastReport = null;
+        state.pendingStartTime = null;
+        document.getElementById('viewReportBtn').disabled = true;
+        hideCompletionBanner();
+        document.getElementById('midiStatus').textContent =
+          `Error al cargar el MIDI: ${err.message || 'Archivo MIDI inválido'}`;
+        renderPianoRoll();
+      }
+    });
+
+    document.getElementById('voiceTypeSelect').addEventListener('change', () => {
+      state.notes = transposeNotes(state.originalNotes, getSelectedSemitones());
+      resetNoteProgress();
+      document.getElementById('midiStatus').textContent =
+        formatMidiStatusText(state.notes, state.durationSec);
+      renderPianoRoll();
+    });
+
+    document.getElementById('wavInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        state.audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('wavStatus').textContent =
+          `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+        const channelCount = state.audioBuffer.numberOfChannels;
+        const channelData = [];
+        for (let ch = 0; ch < channelCount; ch++) {
+          channelData.push(state.audioBuffer.getChannelData(ch));
+        }
+        const monoSamples = new Float32Array(channelData[0].length);
+        for (let i = 0; i < monoSamples.length; i++) {
+          let sum = 0;
+          for (let ch = 0; ch < channelCount; ch++) sum += channelData[ch][i];
+          monoSamples[i] = sum / channelCount;
+        }
+        state.waveformPeaks = computeWaveformPeaks(monoSamples, WAVEFORM_WIDTH);
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = false;
+        document.getElementById('loopToggleBtn').classList.remove('active');
+      } catch (err) {
+        state.audioBuffer = null;
+        state.waveformPeaks = [];
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = true;
+        document.getElementById('loopToggleBtn').classList.remove('active');
+        document.getElementById('wavStatus').textContent =
+          `Error al cargar el WAV: ${err.message || 'Archivo WAV inválido'}`;
+      }
+      renderWaveform();
+    });
+
+    document.getElementById('songSelect').addEventListener('change', async (e) => {
+      const songId = e.target.value;
+      if (!songId) return;
+      const song = state.songs.find((s) => s.id === songId);
+      if (!song) return;
+      const myRequest = ++songRequestId;
+
+      const notifyBtn = document.getElementById('songNotifyBtn');
+      notifyBtn.hidden = true;
+      notifyBtn.disabled = false;
+      notifyBtn.textContent = 'Informar al profesor';
+      document.getElementById('wavStatus').textContent = `Cargando "${song.titulo}"...`;
+      document.getElementById('midiStatus').textContent = `Cargando "${song.titulo}"...`;
+
+      let wavError = null;
+      let midiError = null;
+
+      try {
+        const response = await fetch(song.wav);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
+        if (myRequest !== songRequestId) return;
+        state.audioBuffer = audioBuffer;
+        document.getElementById('wavStatus').textContent =
+          `WAV cargado: ${state.audioBuffer.duration.toFixed(2)}s`;
+        const channelCount = state.audioBuffer.numberOfChannels;
+        const channelData = [];
+        for (let ch = 0; ch < channelCount; ch++) {
+          channelData.push(state.audioBuffer.getChannelData(ch));
+        }
+        const monoSamples = new Float32Array(channelData[0].length);
+        for (let i = 0; i < monoSamples.length; i++) {
+          let sum = 0;
+          for (let ch = 0; ch < channelCount; ch++) sum += channelData[ch][i];
+          monoSamples[i] = sum / channelCount;
+        }
+        state.waveformPeaks = computeWaveformPeaks(monoSamples, WAVEFORM_WIDTH);
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = false;
+        document.getElementById('loopToggleBtn').classList.remove('active');
+      } catch (err) {
+        if (myRequest !== songRequestId) return;
+        wavError = err.message || 'error desconocido';
+        state.audioBuffer = null;
+        state.waveformPeaks = [];
+        state.loopActive = false;
+        state.loopStart = null;
+        state.loopEnd = null;
+        state.loopEngaged = false;
+        document.getElementById('loopToggleBtn').disabled = true;
+        document.getElementById('loopToggleBtn').classList.remove('active');
+        document.getElementById('wavStatus').textContent = `Error al cargar el WAV: ${wavError}`;
+      }
+      renderWaveform();
+
+      try {
+        const response = await fetch(song.midi);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        const parsed = parseMidi(buffer);
+        if (myRequest !== songRequestId) return;
+        const { notes, durationSec, beats } = parsed;
+        state.originalNotes = notes;
+        state.notes = transposeNotes(notes, getSelectedSemitones());
+        state.durationSec = durationSec;
+        state.beats = beats;
+        resetNoteProgress();
+        state.lastReport = null;
+        state.pendingStartTime = null;
+        document.getElementById('viewReportBtn').disabled = true;
+        hideCompletionBanner();
+        document.getElementById('midiStatus').textContent =
+          formatMidiStatusText(state.notes, durationSec);
+        renderPianoRoll();
+      } catch (err) {
+        if (myRequest !== songRequestId) return;
+        midiError = err.message || 'error desconocido';
+        state.notes = [];
+        state.originalNotes = [];
+        state.durationSec = 0;
+        state.beats = [];
+        resetNoteProgress();
+        state.lastReport = null;
+        state.pendingStartTime = null;
+        document.getElementById('viewReportBtn').disabled = true;
+        hideCompletionBanner();
+        document.getElementById('midiStatus').textContent = `Error al cargar el MIDI: ${midiError}`;
+        renderPianoRoll();
+      }
+
+      if (myRequest !== songRequestId) return;
+      if (wavError || midiError) {
+        state.songLoadFailure = { song, wavError, midiError };
+        notifyBtn.hidden = false;
+        e.target.selectedIndex = 0;
+      } else {
+        state.songLoadFailure = null;
+      }
+    });
+
+    document.getElementById('songNotifyBtn').addEventListener('click', async () => {
+      if (!state.songLoadFailure) return;
+      const btn = document.getElementById('songNotifyBtn');
+      btn.disabled = true;
+      const { song, wavError, midiError } = state.songLoadFailure;
+      const report = buildFailureReport(song.titulo, wavError, midiError, new Date().toISOString());
+      try {
+        await fetch('https://formspree.io/f/xzezzqzd', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(report)
+        });
+      } catch (err) {
+        // Sin forma de reintentar desde acá sin complicar la interfaz — el alumno
+        // ya hizo lo que podía hacer, así que igual mostramos la confirmación.
+      }
+      btn.textContent = 'Se le ha notificado al profesor';
+    });
+
+    document.getElementById('instrumentInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        state.instrumentSample = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('instrumentStatus').textContent =
+          `Instrumento cargado: ${state.instrumentSample.duration.toFixed(2)}s`;
+      } catch (err) {
+        state.instrumentSample = null;
+        document.getElementById('instrumentStatus').textContent =
+          `Error al cargar el instrumento: ${err.message || 'Archivo de audio inválido'}`;
+      }
+    });
+
+    async function loadDefaultInstrument() {
+      try {
+        const response = await fetch('./instrumento-default.wav');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        state.instrumentSample = await state.audioContext.decodeAudioData(arrayBuffer);
+        document.getElementById('instrumentStatus').textContent =
+          `Instrumento cargado: ${state.instrumentSample.duration.toFixed(2)}s`;
+      } catch (err) {
+        // Falla silenciosamente en file:// (fetch no funciona sin servidor) — el
+        // usuario siempre puede cargar un instrumento a mano con #instrumentInput.
+        document.getElementById('instrumentStatus').textContent =
+          'Sin instrumento cargado (cárgalo a mano, o abre la app desde un servidor para que se cargue solo).';
+      }
+    }
+    loadDefaultInstrument();
+
+    async function loadSongCatalog() {
+      try {
+        const response = await fetch('./canciones.json?v=' + Date.now());
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const songs = await response.json();
+        state.songs = sortSongsByTitle(songs);
+        const select = document.getElementById('songSelect');
+        state.songs.forEach((song) => {
+          const option = document.createElement('option');
+          option.value = song.id;
+          option.textContent = song.titulo;
+          select.appendChild(option);
+        });
+      } catch (err) {
+        // Sin canciones.json (o inválido), el menú queda solo con el placeholder —
+        // los inputs manuales de MIDI/WAV siguen funcionando como respaldo.
+        state.songs = [];
+      }
+    }
+    loadSongCatalog();
+
+    document.getElementById('instrumentReferenceNote').addEventListener('input', (e) => {
+      const value = parseInt(e.target.value, 10);
+      if (Number.isFinite(value)) {
+        state.instrumentReferenceMidi = value;
+      }
+    });
+
+    let songRequestId = 0;
+    let waveformDragTarget = null;
+
+    function waveformXToTime(clientX) {
+      const canvas = document.getElementById('waveformCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const fraction = Math.min(1, Math.max(0, x / rect.width));
+      const duration = state.audioBuffer ? state.audioBuffer.duration : 0;
+      return fraction * duration;
+    }
+
+    document.getElementById('waveformCanvas').addEventListener('mousedown', (e) => {
+      if (!state.audioBuffer) return;
+      const clickTime = waveformXToTime(e.clientX);
+
+      if (state.loopActive) {
+        const canvas = document.getElementById('waveformCanvas');
+        const rect = canvas.getBoundingClientRect();
+        const toleranceSec = (LOOP_MARKER_HIT_TOLERANCE_PX / rect.width) * state.audioBuffer.duration;
+        const hit = hitTestLoopMarker(clickTime, state.loopStart, state.loopEnd, toleranceSec);
+        if (hit === 'start') {
+          waveformDragTarget = 'loopStart';
+          return;
+        }
+        if (hit === 'end') {
+          waveformDragTarget = 'loopEnd';
+          return;
+        }
+      }
+
+      waveformDragTarget = 'position';
+      state.waveformPreviewTime = clickTime;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!waveformDragTarget) return;
+      if (waveformDragTarget === 'position') {
+        state.waveformPreviewTime = waveformXToTime(e.clientX);
+        return;
+      }
+      const time = waveformXToTime(e.clientX);
+      if (waveformDragTarget === 'loopStart') {
+        state.loopStart = clampLoopStart(time, state.loopEnd, LOOP_MIN_GAP_SEC);
+      } else if (waveformDragTarget === 'loopEnd') {
+        state.loopEnd = clampLoopEnd(time, state.loopStart, LOOP_MIN_GAP_SEC, state.audioBuffer.duration);
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!waveformDragTarget) return;
+      if (waveformDragTarget === 'position') {
+        const time = state.waveformPreviewTime;
+        state.waveformPreviewTime = null;
+        waveformDragTarget = null;
+        seekTo(time);
+        return;
+      }
+      waveformDragTarget = null;
+    });
+
+    document.getElementById('loopToggleBtn').addEventListener('click', () => {
+      if (!state.audioBuffer) return;
+      state.loopActive = !state.loopActive;
+      const btn = document.getElementById('loopToggleBtn');
+      if (state.loopActive) {
+        if (state.loopStart === null) {
+          state.loopStart = 0;
+          state.loopEnd = state.audioBuffer.duration;
+        }
+        state.loopEngaged = false;
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+
+    async function play() {
+      if (!state.audioBuffer) return;
+      const startFrom = state.loopActive
+        ? state.loopStart
+        : (state.pendingStartTime !== null ? Math.min(state.pendingStartTime, state.audioBuffer.duration) : 0);
+      state.pendingStartTime = null;
+      state.loopEngaged = computeLoopEngaged(state.loopActive, startFrom, state.loopStart, state.loopEnd);
+      if (state.audioContext.state === 'suspended') {
+        await state.audioContext.resume();
+      }
+      if (state.sourceNode) {
+        state.sourceNode.onended = null;
+        state.sourceNode.stop();
+      }
+      if (state.calibration) {
+        state.calibration = null;
+        document.getElementById('calibrateBtn').disabled = false;
+        document.getElementById('latencyStatus').textContent = 'Calibración cancelada.';
+      }
+      stopAndClearScheduledNodes();
+      state.frozenTime = null;
+      resetNoteProgress();
+      state.lastSignalTime = startFrom;
+      document.getElementById('playbackStatus').textContent = '';
+      document.getElementById('reportPanel').hidden = true;
+      hideCompletionBanner();
+      document.getElementById('voiceTypeSelect').disabled = true;
+      startSourceAt(startFrom);
+    }
+
+    function stopPlayback(reason) {
+      if (state.sourceNode) {
+        state.sourceNode.onended = null;
+        state.sourceNode.stop();
+        state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+        state.sourceNode = null;
+      }
+      state.metronomeNodes.forEach((osc) => {
+        try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.metronomeNodes = [];
+      state.instrumentNodes.forEach((node) => {
+        try { node.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.instrumentNodes = [];
+      document.getElementById('playbackStatus').textContent = reason;
+      document.getElementById('voiceTypeSelect').disabled = false;
+      generateReport();
+    }
+
+    function stopAndClearScheduledNodes() {
+      state.metronomeNodes.forEach((osc) => {
+        try { osc.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.metronomeNodes = [];
+      state.instrumentNodes.forEach((node) => {
+        try { node.stop(); } catch (err) { /* already stopped, ignore */ }
+      });
+      state.instrumentNodes = [];
+    }
+
+    function startSourceAt(offset) {
+      const node = state.audioContext.createBufferSource();
+      node.buffer = state.audioBuffer;
+      node.connect(state.wavGainNode);
+      state.sourceNode = node;
+      state.playStartTime = state.audioContext.currentTime - offset;
+      node.start(state.audioContext.currentTime, offset);
+      node.onended = () => {
+        if (state.sourceNode !== node) return;
+        if (state.loopActive && state.loopEngaged) {
+          seekTo(state.loopStart);
+          return;
+        }
+        state.frozenTime = state.audioContext.currentTime - state.playStartTime;
+        state.sourceNode = null;
+        document.getElementById('voiceTypeSelect').disabled = false;
+        generateReport();
+      };
+      if (document.getElementById('metronomeCheckbox').checked) {
+        state.beats.forEach((beatTime) => {
+          if (beatTime < offset) return;
+          const osc = playMetronomeClick(state.audioContext, state.playStartTime + beatTime);
+          state.metronomeNodes.push(osc);
+        });
+      }
+      if (document.getElementById('playMidiCheckbox').checked && state.instrumentSample) {
+        state.notes.forEach((note) => {
+          if (note.start < offset) return;
+          const rate = playbackRateForNote(note.pitch, state.instrumentReferenceMidi);
+          const instrumentNode = playInstrumentNote(
+            state.audioContext,
+            state.instrumentSample,
+            rate,
+            state.playStartTime + note.start,
+            note.duration
+          );
+          state.instrumentNodes.push(instrumentNode);
+        });
+      }
+    }
+
+    function seekTo(time) {
+      if (!state.audioBuffer) return;
+      const clamped = Math.min(Math.max(time, 0), state.audioBuffer.duration);
+      state.loopEngaged = computeLoopEngaged(state.loopActive, clamped, state.loopStart, state.loopEnd);
+
+      // resetNoteProgress() sets state.frozenTime = null as a side effect — it MUST run
+      // before the "stopped" branch below sets frozenTime to the real seek position,
+      // or that assignment gets silently wiped back to null.
+      resetNoteProgress();
+      state.lastSignalTime = clamped;
+
+      if (state.sourceNode) {
+        state.sourceNode.onended = null;
+        state.sourceNode.stop();
+        stopAndClearScheduledNodes();
+        startSourceAt(clamped);
+      } else {
+        state.frozenTime = clamped;
+        state.pendingStartTime = clamped;
+      }
+    }
+
+    function generateReport() {
+      if (!state.notes.length) return;
+      const stats = computeReportStats(state.notes, state.noteProgress, state.beats);
+      const text = formatReportText(stats, state.durationSec, midiToNoteName);
+      const svg = buildReportSvg(
+        state.notes,
+        state.noteProgress,
+        state.fullPitchHistory,
+        {
+          pixelsPerSecond: PIXELS_PER_SECOND,
+          rowHeight: ROW_HEIGHT,
+          height: CANVAS_HEIGHT,
+          gapThresholdSec: PITCH_LINE_GAP_SEC,
+          durationSec: state.durationSec,
+          beats: state.beats,
+          colors: {
+            inTune: COLOR_IN_TUNE,
+            outOfTune: COLOR_OUT_OF_TUNE,
+            noSignal: COLOR_NO_SIGNAL,
+            pitchLine: COLOR_PITCH_LINE,
+            gridRow: COLOR_GRID_ROW,
+            gridBeat: COLOR_GRID_BEAT,
+            noteBorder: COLOR_NOTE_BORDER
+          }
+        },
+        { pitchRange, computeNoteRect, pitchToY, pitchPointX, shouldBreakLine, computeSemitoneGridLines }
+      );
+      state.lastReport = { stats, text, svg };
+      showCompletionBanner();
+    }
+
+    function showCompletionBanner() {
+      if (!state.lastReport) return;
+      const pct = Math.round(state.lastReport.stats.inTunePercent);
+      document.getElementById('completionBannerText').textContent = `Terminaste — ${pct}% afinado.`;
+      document.getElementById('viewReportBtn').disabled = false;
+      document.getElementById('completionBanner').hidden = false;
+    }
+
+    function hideCompletionBanner() {
+      document.getElementById('completionBanner').hidden = true;
+    }
+
+    function showReport() {
+      if (!state.lastReport) return;
+      document.getElementById('reportSvgContainer').innerHTML = state.lastReport.svg;
+      document.getElementById('reportTextView').textContent = state.lastReport.text;
+      document.getElementById('reportPanel').hidden = false;
+    }
+
+    function downloadTextFile(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('playBtn').addEventListener('click', play);
+
+    document.getElementById('stopBtn').addEventListener('click', () => {
+      if (!state.sourceNode) return;
+      stopPlayback('Reproducción detenida por el usuario.');
+    });
+
+    document.getElementById('viewReportBtn').addEventListener('click', showReport);
+
+    document.getElementById('closeReportBtn').addEventListener('click', () => {
+      document.getElementById('reportPanel').hidden = true;
+    });
+
+    document.getElementById('reportScrollLeftBtn').addEventListener('click', () => {
+      document.getElementById('reportSvgContainer').scrollBy({ left: -REPORT_SCROLL_STEP, behavior: 'smooth' });
+    });
+
+    document.getElementById('reportScrollRightBtn').addEventListener('click', () => {
+      document.getElementById('reportSvgContainer').scrollBy({ left: REPORT_SCROLL_STEP, behavior: 'smooth' });
+    });
+
+    document.getElementById('downloadTxtBtn').addEventListener('click', () => {
+      if (!state.lastReport) return;
+      downloadTextFile('informe-app-voz.txt', state.lastReport.text, 'text/plain;charset=utf-8');
+    });
+
+    document.getElementById('downloadSvgBtn').addEventListener('click', () => {
+      if (!state.lastReport) return;
+      downloadTextFile('informe-app-voz.svg', state.lastReport.svg, 'image/svg+xml');
+    });
+
+    document.getElementById('muteWavCheckbox').addEventListener('change', (e) => {
+      state.wavGainNode.gain.value = e.target.checked ? 0 : 1;
+    });
+
+    function updateLevelMeter(peak) {
+      const bar = document.getElementById('levelMeterBar');
+      const pct = Math.min(peak, 1) * 100;
+      bar.style.width = pct + '%';
+      if (peak > 0.9) {
+        bar.style.backgroundColor = '#e05a4e';
+      } else if (peak > 0.7) {
+        bar.style.backgroundColor = '#e0b83e';
+      } else {
+        bar.style.backgroundColor = '#3ecf6e';
+      }
+    }
+
+    function updatePitchDisplay(frequency) {
+      const el = document.getElementById('pitchDisplay');
+      if (frequency === null) {
+        el.textContent = 'Nota detectada: —';
+        return;
+      }
+      const { noteName, cents } = describePitch(frequency);
+      const sign = cents >= 0 ? '+' : '';
+      el.textContent = `Nota detectada: ${noteName} (${frequency.toFixed(1)} Hz, ${sign}${cents.toFixed(0)} cents)`;
+    }
+
+    function updateLatencyStatusDisplay() {
+      const ms = Math.round(state.latencyOffsetSec * 1000);
+      document.getElementById('latencyStatus').textContent = `Latencia calibrada: ${ms}ms`;
+    }
+
+    function finishCalibration() {
+      const offset = computeCalibrationOffset(state.calibration.deltas);
+      state.calibration = null;
+      document.getElementById('calibrateBtn').disabled = false;
+      if (offset === null) {
+        document.getElementById('latencyStatus').textContent =
+          'Calibración fallida: no se detectaron suficientes "Ta". Intentá de nuevo.';
+        return;
+      }
+      state.latencyOffsetSec = offset;
+      updateLatencyStatusDisplay();
+      try {
+        localStorage.setItem('appVozLatencyOffsetSec', String(offset));
+      } catch (err) {
+        // localStorage no disponible — el offset sigue aplicando en esta sesión, solo no se persiste.
+      }
+    }
+
+    function updateNoteProgress(currentTime, detectedFrequency, deltaSeconds) {
+      let activeIndex = null;
+      let activeColor = null;
+
+      if (state.sourceNode) {
+        state.notes.forEach((note, i) => {
+          if (noteStatus(note, currentTime) !== 'active') return;
+          activeIndex = i;
+          activeColor = liveNoteColor(detectedFrequency, note.pitch);
+          const hadSignal = state.noteProgress[i].hadSignal || detectedFrequency !== null;
+          const firstSignalTime = state.noteProgress[i].firstSignalTime !== null
+            ? state.noteProgress[i].firstSignalTime
+            : (activeColor === 'in-tune' ? currentTime : null);
+          if (deltaSeconds > 0) {
+            const isInTuneNow = activeColor === 'in-tune';
+            state.noteProgress[i] = accumulateTuning(state.noteProgress[i], isInTuneNow, deltaSeconds);
+          }
+          state.noteProgress[i].hadSignal = hadSignal;
+          state.noteProgress[i].firstSignalTime = firstSignalTime;
+        });
+      }
+
+      state.lastActiveNoteIndex = state.activeNoteIndex;
+      state.lastActiveNoteColor = state.activeNoteColor;
+      state.activeNoteIndex = activeIndex;
+      state.activeNoteColor = activeColor;
+
+      if (
+        activeIndex !== null &&
+        activeIndex === state.lastActiveNoteIndex &&
+        state.lastActiveNoteColor !== 'in-tune' &&
+        activeColor === 'in-tune'
+      ) {
+        playSuccessBlip(state.audioContext);
+      }
+    }
+
+    function mainLoop() {
+      const now = state.audioContext.currentTime;
+      const deltaSeconds = state.lastFrameTime === null ? 0 : now - state.lastFrameTime;
+      state.lastFrameTime = now;
+
+      let currentTime = currentPlaybackTime();
+      let judgmentTime = currentTime - state.latencyOffsetSec;
+      let detectedFrequency = null;
+      let peak = 0;
+      if (state.voces[0]) {
+        ({ peak } = state.voces[0].getLevel());
+        updateLevelMeter(peak);
+        detectedFrequency = peak > 0.02 ? state.voces[0].getPitch() : null;
+        updatePitchDisplay(detectedFrequency);
+      }
+
+      if (state.calibration) {
+        const nowAudio = state.audioContext.currentTime;
+        state.calibration.clickTimes.forEach((clickTime, i) => {
+          if (state.calibration.deltas[i] !== null) return;
+          const windowStart = clickTime + CALIBRATION_DEAD_ZONE_SEC;
+          if (nowAudio < windowStart || nowAudio > clickTime + CALIBRATION_WINDOW_SEC) return;
+          if (peak > 0.02) {
+            state.calibration.deltas[i] = nowAudio - clickTime;
+          }
+        });
+        if (nowAudio >= state.calibration.endTime) {
+          finishCalibration();
+        }
+      }
+
+      if (state.loopActive && state.sourceNode) {
+        if (!state.loopEngaged && computeLoopEngaged(true, currentTime, state.loopStart, state.loopEnd)) {
+          state.loopEngaged = true;
+        }
+        if (state.loopEngaged && currentTime >= state.loopEnd) {
+          seekTo(state.loopStart);
+          currentTime = currentPlaybackTime();
+          judgmentTime = currentTime - state.latencyOffsetSec;
+        }
+      }
+
+      if (detectedFrequency !== null) {
+        state.lastSignalTime = judgmentTime;
+      }
+
+      if (hasMic() && state.sourceNode && countUnsungBeats(state.beats, state.notes, state.lastSignalTime, judgmentTime) >= SILENCE_STOP_BEATS) {
+        stopPlayback('Reproducción detenida: no se detectó canto durante varios pulsos.');
+      }
+
+      if (hasMic() && state.sourceNode && detectedFrequency !== null) {
+        state.pitchHistory.push({ time: judgmentTime, pitch: frequencyToMidi(detectedFrequency) });
+        state.fullPitchHistory.push({ time: judgmentTime, pitch: frequencyToMidi(detectedFrequency) });
+      }
+      state.pitchHistory = state.pitchHistory.filter((p) => p.time > currentTime - MAX_PITCH_HISTORY_SEC);
+
+      updateNoteProgress(judgmentTime, detectedFrequency, deltaSeconds);
+      renderPianoRoll();
+      renderWaveform();
+
+      requestAnimationFrame(mainLoop);
+    }
+
+    document.getElementById('micBtn').addEventListener('click', async () => {
+      const micBtn = document.getElementById('micBtn');
+      const micStatus = document.getElementById('micStatus');
+      micBtn.disabled = true;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        micStatus.textContent = 'Error al activar el micrófono: este navegador no permite acceso al micrófono desde este origen (probá abriendo la app con http://localhost o https://).';
+        micBtn.disabled = false;
+        return;
+      }
+      try {
+        if (state.audioContext.state === 'suspended') {
+          await state.audioContext.resume();
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        });
+        const voz = createVoz(stream, state.audioContext);
+        state.voces.push(voz);
+        micStatus.textContent = 'Micrófono activado.';
+        document.getElementById('micGain').disabled = false;
+        document.getElementById('calibrateBtn').disabled = false;
+      } catch (err) {
+        micBtn.disabled = false;
+        let msg = 'No se pudo activar el micrófono.';
+        if (err.name === 'NotAllowedError') {
+          msg = 'Permiso de micrófono denegado. Revisá los permisos del sitio en el navegador.';
+        } else if (err.name === 'NotFoundError') {
+          msg = 'No se encontró ningún micrófono conectado.';
+        } else if (err.message) {
+          msg = `Error al activar el micrófono: ${err.message}`;
+        }
+        micStatus.textContent = msg;
+      }
+    });
+
+    document.getElementById('micGain').addEventListener('input', (e) => {
+      if (state.voces[0]) {
+        state.voces[0].setGain(parseFloat(e.target.value));
+      }
+    });
+
+    document.getElementById('calibrateBtn').addEventListener('click', () => {
+      if (state.sourceNode) return;
+      document.getElementById('calibrateBtn').disabled = true;
+      document.getElementById('latencyStatus').textContent = 'Calibrando... decí "Ta" en cada click.';
+      const startTime = state.audioContext.currentTime + 0.1;
+      const clickTimes = [];
+      for (let i = 0; i < CALIBRATION_TRIALS; i++) {
+        const when = startTime + i * CALIBRATION_INTERVAL_SEC;
+        clickTimes.push(when);
+        playMetronomeClick(state.audioContext, when);
+      }
+      state.calibration = {
+        clickTimes,
+        deltas: clickTimes.map(() => null),
+        endTime: clickTimes[clickTimes.length - 1] + CALIBRATION_WINDOW_SEC
+      };
+    });
+  </script>
+</body>
+</html>
