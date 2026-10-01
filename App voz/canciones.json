@@ -10,5 +10,11 @@
     "titulo": "Lovefool",
     "wav": "canciones/lovefool/pista.wav",
     "midi": "canciones/lovefool/guia.mid"
+  },
+  {
+    "id": "no-hay-nada-nuevo-bajo-el-sol",
+    "titulo": "No hay nada nuevo bajo el sol",
+    "wav": "canciones/no-hay-nada-nuevo-bajo-el-sol/pista.wav",
+    "midi": "canciones/no-hay-nada-nuevo-bajo-el-sol/guia.mid"
   }
 ]
