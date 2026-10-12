@@ -237,6 +237,7 @@
       gainNode.connect(analyser);
       const byteBuffer = new Uint8Array(analyser.fftSize);
       const floatBuffer = new Float32Array(analyser.fftSize);
+      const pitchTracker = createPitchTracker();
       return {
         stream,
         source,
@@ -251,7 +252,10 @@
         },
         getPitch() {
           analyser.getFloatTimeDomainData(floatBuffer);
-          return detectPitch(floatBuffer, audioContext.sampleRate);
+          return pitchTracker.detect(floatBuffer, audioContext.sampleRate);
+        },
+        resetPitchTracking() {
+          pitchTracker.reset();
         }
       };
     }
@@ -1181,7 +1185,11 @@
       if (state.voces[0]) {
         ({ peak } = state.voces[0].getLevel());
         updateLevelMeter(peak);
-        detectedFrequency = peak > 0.02 ? state.voces[0].getPitch() : null;
+        if (peak > 0.02) {
+          detectedFrequency = state.voces[0].getPitch();
+        } else {
+          state.voces[0].resetPitchTracking();
+        }
         updatePitchDisplay(detectedFrequency);
       }
 

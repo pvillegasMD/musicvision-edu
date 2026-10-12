@@ -146,9 +146,11 @@ sin arreglos de revisión final, la rama quedó limpia. Los 47 tests de Node pas
   Mismo patrón de export dual.
 - **`pitch-detection.js`** — detección de pitch pura (sin DOM): `detectPitch(buffer, sampleRate, threshold=0.15) -> Hz | null`.
   Algoritmo YIN implementado a mano (función de diferencia, normalización acumulada,
-  umbral absoluto, interpolación parabólica). Sin límites de frecuencia mín/máx
-  todavía (detecta desde ~43Hz hasta ~22kHz, más allá del rango vocal real). Mismo
-  patrón de export dual.
+  umbral absoluto, interpolación parabólica). `detectPitch` no tiene límites de
+  frecuencia mín/máx (detecta desde ~43Hz hasta ~22kHz), pero el seguidor sí.
+  Mismo patrón de export dual.
+  También exporta `createPitchTracker(options)` → `{detect(buffer, sampleRate), reset()}`,
+  un seguidor con memoria que usa la app (ver "Seguidor de pitch" más abajo).
 - **`note-utils.js`** — conversión pura de frecuencia a nota: `frequencyToMidi(freq)`,
   `midiToNoteName(midi)`, `describePitch(freq) -> {midi, noteName, cents}`,
   `playbackRateForNote(targetMidi, referenceMidi) -> number` (Etapa 8 —
@@ -668,6 +670,34 @@ mejorar la legibilidad visual sin cambiar la lógica musical del sistema:
   (`COLOR_NOTE_BORDER`, una JS `const` definida como `'rgba(0,0,0,0.28)'`), aplicado
   uniformemente en el render en vivo y el SVG descargable del informe.
 
+## Seguidor de pitch (fix de picos con voz de pecho)
+**Problema reportado (2026-10):** al cantar con voz de pecho el contorno de pitch
+del informe mostraba muchos picos; con falsete salía estable. Pasaba con audífonos
+bluetooth y, en menor medida, con audífonos con cable + micrófono del Mac.
+
+**Causa (medida sobre una grabación real, no supuesta):** errores de octava de YIN.
+En voz de pecho el 2º parcial a veces es más fuerte que la fundamental, o aparece
+un mínimo en el sub-armónico, y YIN elige el candidato equivocado un octavo
+arriba/abajo durante algunos cuadros. ~5% de los cuadros con voz. No era clipping
+ni ruido de entrada (no se encontró saturación).
+
+**Solución:** `createPitchTracker()` en `pitch-detection.js`. Calcula la CMNDF una vez
+(`computeCmndf`), busca todos los mínimos locales (`findPitchCandidates`, rango
+70–1400 Hz) y, si hay un tono previo, elige entre los candidatos **relacionados por
+octava** con el estándar el más cercano al tono anterior (`isOctaveOf`). Solo corrige
+si la ganancia supera 3 semitonos. Parámetros por defecto: `threshold` 0.15,
+`margin` 0.5, `maxOverrideFrames` 12 (tope para que un salto de octava real se
+siga), `maxMissedFrames` 6 (olvida el tono previo tras un silencio),
+`minCorrectionSemitones` 3. No cambia saltos melódicos que no son de octava.
+- **Resultado en la grabación real:** saltos de octava 48 → 3, sin perder cuadros con
+  voz y sin otros saltos.
+- **Integración (`index.html`):** `createVoz` crea un `pitchTracker`; `getPitch()` usa
+  `pitchTracker.detect(...)`; `resetPitchTracking()` se llama en `mainLoop` cuando el
+  nivel cae bajo el umbral de 0.02 (silencio ⇒ el tono previo se descarta).
+- **No portado todavía** a la herramienta de evaluación (rama local `local/evaluacion`,
+  que tiene su propia copia de `pitch-detection.js`).
+- Tests: 11 pruebas nuevas del seguidor en `tests/pitch-detection.test.js`.
+
 ## Decisiones técnicas
 - **`hasMic()`** (Etapa 6) centraliza `state.voces.length > 0` en una sola función en
   vez de repetir la expresión en `renderPianoRoll` y `mainLoop` — evita que las dos
@@ -737,9 +767,8 @@ mejorar la legibilidad visual sin cambiar la lógica musical del sistema:
   `rms: NaN`) — inconsistente con las guardas que sí tienen `pitchRange`/`pitchToY`
   en `piano-roll-geometry.js`. Riesgo real bajo: `AnalyserNode.getByteTimeDomainData()`
   nunca devuelve un array de largo 0.
-- `pitch-detection.js` no tiene límites de frecuencia mín/máx — detecta desde ~43Hz
-  hasta ~22kHz, muy por fuera del rango vocal real (~65-1100Hz). Combinado con el
-  filtro de nivel, achica pero no elimina la ventana de lecturas fantasma.
+- `detectPitch()` suelto no tiene límites de frecuencia mín/máx (el seguidor
+  `createPitchTracker` sí: 70–1400 Hz), y la app ya usa el seguidor.
 - `describePitch()` en `note-utils.js` no está definida para entradas no positivas
   (`describePitch(0)` da `NaN`/nombres sin sentido) — hoy no es alcanzable porque
   `detectPitch` siempre devuelve `null` o un número finito positivo, pero podría
