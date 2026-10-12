@@ -1,0 +1,26 @@
+[
+  {
+    "id": "three-little-birds",
+    "titulo": "Three Little Birds",
+    "wav": "canciones/three-little-birds/pista.wav",
+    "midi": "canciones/three-little-birds/guia.mid"
+  },
+  {
+    "id": "lovefool",
+    "titulo": "Lovefool",
+    "wav": "canciones/lovefool/pista.wav",
+    "midi": "canciones/lovefool/guia.mid"
+  },
+  {
+    "id": "no-hay-nada-nuevo-bajo-el-sol",
+    "titulo": "No hay nada nuevo bajo el sol",
+    "wav": "canciones/no-hay-nada-nuevo-bajo-el-sol/pista.wav",
+    "midi": "canciones/no-hay-nada-nuevo-bajo-el-sol/guia.mid"
+  },
+  {
+    "id": "perfecta",
+    "titulo": "Perfecta",
+    "wav": "canciones/perfecta/pista.wav",
+    "midi": "canciones/perfecta/guia.mid"
+  }
+]

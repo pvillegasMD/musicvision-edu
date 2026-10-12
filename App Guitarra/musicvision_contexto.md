@@ -6,7 +6,7 @@ App desarrollada completamente en HTML puro (sin frameworks, sin dependencias ex
 listas para abrir con doble click en cualquier navegador.
 
 
-## App — HarmonySync (`harmonysync.html`)
+## App — HarmonySync (`harmonysync_11.html`)
 
 ### Qué es
 Visualizador de acordes MIDI sincronizado con un diapasón de guitarra horizontal.
@@ -96,8 +96,8 @@ la reproducción el diapasón muestra automáticamente cómo tocar cada acorde.
 ## Archivos del proyecto
 | Archivo | Descripción |
 |---|---|
-| `metalofono_final.html` | App del metalófono completa |
-| `harmonysync.html` | App del visualizador de acordes |
+| `metalofono_final_3.html` | App del metalófono completa |
+| `harmonysync_11.html` | App del visualizador de acordes |
 | `musicvision_contexto.md` | Este archivo de contexto |
 
 ---

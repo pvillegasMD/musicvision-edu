@@ -7,7 +7,7 @@ listas para abrir con doble click en cualquier navegador.
 
 ---
 
-## App 1 — Metalófono (`metalofono_final.html`)
+## App 1 — Metalófono (`metalofono_final_3.html`)
 
 ### Qué es
 Simulador interactivo de un metalófono cromático de 25 notas, rango C5–A6.
