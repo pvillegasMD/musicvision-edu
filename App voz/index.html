@@ -196,7 +196,7 @@
     state.wavGainNode.gain.value = document.getElementById('muteWavCheckbox').checked ? 0 : 1;
 
     const PIXELS_PER_SECOND = 150;
-    const PLAYHEAD_X = 120;
+    const PLAYHEAD_X = document.getElementById('pianoRoll').width / 2;
     const ROW_HEIGHT = 18;
     const COLOR_UPCOMING = '#4a90d9';
     const COLOR_IN_TUNE = '#3ecf6e';

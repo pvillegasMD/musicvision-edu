@@ -189,7 +189,9 @@ sin arreglos de revisión final, la rama quedó limpia. Los 47 tests de Node pas
 - Piano roll en Canvas: rectángulos por nota, todos azules, con línea de playhead fija
   y las notas scrolleando de derecha a izquierda en sincronía exacta con la
   reproducción (verificado por píxeles: el desplazamiento medido coincide con
-  `Δt × PIXELS_PER_SECOND` con precisión de ~2px).
+  `Δt × PIXELS_PER_SECOND` con precisión de ~2px). La línea de playhead está en el
+  centro del canvas (`PLAYHEAD_X = ancho del canvas / 2`, antes x=120): se ve tanto lo
+  que viene (3s de anticipación, antes 5.2s) como lo que ya pasó (3s hacia la izquierda).
 - Manejo de errores: archivo MIDI o WAV inválido muestra un mensaje de error en
   español y resetea el estado (no deja datos del archivo anterior mostrados como si
   fueran del nuevo).
@@ -822,11 +824,11 @@ mejorar la legibilidad visual sin cambiar la lógica musical del sistema:
   práctica personal esto es aceptable (lo que importa es que la línea/los colores
   queden alineados con cómo ESE usuario, en ESE dispositivo, canta realmente), pero no
   es una medición científica del retraso del hardware en sí.
-- **`MAX_PITCH_HISTORY_SEC` retiene ~8× más puntos de los que pueden llegar a verse.**
-  (Etapa 7) Se calculó como `(PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND` (6.8s),
-  pero como los puntos del historial siempre están en el pasado, nunca aparecen a la
-  derecha del playhead y scrollean fuera de pantalla en `PLAYHEAD_X / PIXELS_PER_SECOND`
-  (0.8s). El array recorta de más, generando churn de GC innecesario en el loop de
+- **`MAX_PITCH_HISTORY_SEC` retiene ~3× más puntos de los que pueden llegar a verse.**
+  (Etapa 7) Se calculó como `(PLAYHEAD_X + CANVAS_WIDTH) / PIXELS_PER_SECOND` (9s con el
+  playhead al centro; era 6.8s y ~8× cuando estaba en x=120), pero como los puntos del
+  historial siempre están en el pasado, nunca aparecen a la derecha del playhead y
+  scrollean fuera de pantalla en `PLAYHEAD_X / PIXELS_PER_SECOND` (3s; era 0.8s). El array recorta de más, generando churn de GC innecesario en el loop de
   render (barato, pero evitable) — encontrado en la revisión final de la rama, no
   bloqueante.
 - **El offset persistido en `localStorage` no se valida contra el rango que la propia
