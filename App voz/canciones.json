@@ -16,5 +16,11 @@
     "titulo": "No hay nada nuevo bajo el sol",
     "wav": "canciones/no-hay-nada-nuevo-bajo-el-sol/pista.wav",
     "midi": "canciones/no-hay-nada-nuevo-bajo-el-sol/guia.mid"
+  },
+  {
+    "id": "perfecta",
+    "titulo": "Perfecta",
+    "wav": "canciones/perfecta/pista.wav",
+    "midi": "canciones/perfecta/guia.mid"
   }
 ]
